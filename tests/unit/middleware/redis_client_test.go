@@ -356,8 +356,11 @@ func (suite *RedisClientTestSuite) TestExecuteWithTimeout() {
 	}
 }
 
-// TestRedisClientTestSuite 运行测试套件
+// TestRedisClientTestSuite 运行测试套件（需要Redis服务器）
 func TestRedisClientTestSuite(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping Redis integration tests in short mode (Redis server required)")
+	}
 	suite.Run(t, new(RedisClientTestSuite))
 }
 
@@ -378,4 +381,104 @@ func (u *unsupportedOperation) Value() []byte {
 
 func (u *unsupportedOperation) Metadata() map[string]interface{} {
 	return nil
+}
+
+// TestRedisClient_UnitTests 不需要Redis的单元测试
+func TestRedisClient_UnitTests(t *testing.T) {
+	// 测试配置创建
+	config := &middleware.RedisConfig{
+		Host:    "localhost",
+		Port:    6379,
+		DB:      0,
+		Timeout: 5 * time.Second,
+	}
+
+	client := middleware.NewRedisClient(config)
+	if client == nil {
+		t.Fatal("NewRedisClient should not return nil")
+	}
+
+	// 测试未连接状态的GetMetrics
+	metrics := client.GetMetrics()
+	if metrics == nil {
+		t.Fatal("GetMetrics should not return nil")
+	}
+	if metrics.ActiveConnections != 0 {
+		t.Errorf("Expected 0 active connections, got %d", metrics.ActiveConnections)
+	}
+
+	// 测试未连接时的HealthCheck
+	ctx := context.Background()
+	err := client.HealthCheck(ctx)
+	if !errors.Is(err, core.ErrClientNotConnected) {
+		t.Errorf("Expected ErrClientNotConnected, got %v", err)
+	}
+
+	// 测试未连接时的Execute
+	op := &middleware.RedisSetOperation{
+		OpKey:   "test",
+		OpValue: []byte("value"),
+	}
+	result, err := client.Execute(ctx, op)
+	if !errors.Is(err, core.ErrClientNotConnected) {
+		t.Errorf("Expected ErrClientNotConnected, got %v", err)
+	}
+	if result != nil {
+		t.Error("Result should be nil when not connected")
+	}
+
+	// 测试未连接时的Disconnect（应该成功 - 幂等性）
+	err = client.Disconnect(ctx)
+	if err != nil {
+		t.Errorf("Disconnect when not connected should succeed, got %v", err)
+	}
+}
+
+// TestRedisOperations 测试操作类型实现
+func TestRedisOperations(t *testing.T) {
+	// 测试SET操作
+	setOp := &middleware.RedisSetOperation{
+		OpKey:   "test:key",
+		OpValue: []byte("test-value"),
+	}
+
+	if setOp.Type() != core.OpTypeWrite {
+		t.Errorf("SET operation should be Write type, got %v", setOp.Type())
+	}
+	if setOp.Key() != "test:key" {
+		t.Errorf("Expected key 'test:key', got %s", setOp.Key())
+	}
+	if string(setOp.Value()) != "test-value" {
+		t.Errorf("Expected value 'test-value', got %s", setOp.Value())
+	}
+	if setOp.Metadata() == nil {
+		t.Error("Metadata should not be nil")
+	}
+
+	// 测试GET操作
+	getOp := &middleware.RedisGetOperation{
+		OpKey: "test:key",
+	}
+
+	if getOp.Type() != core.OpTypeRead {
+		t.Errorf("GET operation should be Read type, got %v", getOp.Type())
+	}
+	if getOp.Key() != "test:key" {
+		t.Errorf("Expected key 'test:key', got %s", getOp.Key())
+	}
+	if getOp.Value() != nil {
+		t.Error("GET operation Value should be nil")
+	}
+
+	// 测试DELETE操作
+	delOp := &middleware.RedisDeleteOperation{
+		OpKey: "test:key",
+	}
+
+	if delOp.Type() != core.OpTypeDelete {
+		t.Errorf("DELETE operation should be Delete type, got %v", delOp.Type())
+	}
+	if delOp.Key() != "test:key" {
+		t.Errorf("Expected key 'test:key', got %s", delOp.Key())
+	}
 }
