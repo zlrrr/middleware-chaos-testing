@@ -16,11 +16,79 @@ type StabilityEvaluator struct {
 
 // NewStabilityEvaluator 创建新的稳定性评估器
 func NewStabilityEvaluator(thresholds *core.Thresholds) *StabilityEvaluator {
-	if thresholds == nil {
-		thresholds = DefaultThresholds()
+	// 从默认阈值开始
+	finalThresholds := DefaultThresholds()
+
+	// 如果提供了自定义阈值，合并非零值
+	if thresholds != nil {
+		if thresholds.AvailabilityExcellent > 0 {
+			finalThresholds.AvailabilityExcellent = thresholds.AvailabilityExcellent
+		}
+		if thresholds.AvailabilityGood > 0 {
+			finalThresholds.AvailabilityGood = thresholds.AvailabilityGood
+		}
+		if thresholds.AvailabilityFair > 0 {
+			finalThresholds.AvailabilityFair = thresholds.AvailabilityFair
+		}
+		if thresholds.AvailabilityPass > 0 {
+			finalThresholds.AvailabilityPass = thresholds.AvailabilityPass
+		}
+
+		if thresholds.P95LatencyExcellent > 0 {
+			finalThresholds.P95LatencyExcellent = thresholds.P95LatencyExcellent
+		}
+		if thresholds.P95LatencyGood > 0 {
+			finalThresholds.P95LatencyGood = thresholds.P95LatencyGood
+		}
+		if thresholds.P95LatencyFair > 0 {
+			finalThresholds.P95LatencyFair = thresholds.P95LatencyFair
+		}
+		if thresholds.P95LatencyPass > 0 {
+			finalThresholds.P95LatencyPass = thresholds.P95LatencyPass
+		}
+
+		if thresholds.P99LatencyExcellent > 0 {
+			finalThresholds.P99LatencyExcellent = thresholds.P99LatencyExcellent
+		}
+		if thresholds.P99LatencyGood > 0 {
+			finalThresholds.P99LatencyGood = thresholds.P99LatencyGood
+		}
+		if thresholds.P99LatencyFair > 0 {
+			finalThresholds.P99LatencyFair = thresholds.P99LatencyFair
+		}
+		if thresholds.P99LatencyPass > 0 {
+			finalThresholds.P99LatencyPass = thresholds.P99LatencyPass
+		}
+
+		if thresholds.ErrorRateExcellent > 0 {
+			finalThresholds.ErrorRateExcellent = thresholds.ErrorRateExcellent
+		}
+		if thresholds.ErrorRateGood > 0 {
+			finalThresholds.ErrorRateGood = thresholds.ErrorRateGood
+		}
+		if thresholds.ErrorRateFair > 0 {
+			finalThresholds.ErrorRateFair = thresholds.ErrorRateFair
+		}
+		if thresholds.ErrorRatePass > 0 {
+			finalThresholds.ErrorRatePass = thresholds.ErrorRatePass
+		}
+
+		if thresholds.MTTRExcellent > 0 {
+			finalThresholds.MTTRExcellent = thresholds.MTTRExcellent
+		}
+		if thresholds.MTTRGood > 0 {
+			finalThresholds.MTTRGood = thresholds.MTTRGood
+		}
+		if thresholds.MTTRFair > 0 {
+			finalThresholds.MTTRFair = thresholds.MTTRFair
+		}
+		if thresholds.MTTRPass > 0 {
+			finalThresholds.MTTRPass = thresholds.MTTRPass
+		}
 	}
+
 	return &StabilityEvaluator{
-		thresholds: thresholds,
+		thresholds: finalThresholds,
 	}
 }
 
@@ -68,11 +136,11 @@ func (se *StabilityEvaluator) Evaluate(metrics *core.StabilityMetrics) *core.Eva
 	result.Scores.Reliability = se.calculateReliabilityScore(metrics, result)
 	result.Scores.Resilience = se.calculateResilienceScore(metrics, result)
 
-	// 计算总分（加权）
-	result.Score = result.Scores.Availability*0.30 +
-		result.Scores.Performance*0.25 +
-		result.Scores.Reliability*0.25 +
-		result.Scores.Resilience*0.20
+	// 计算总分（直接相加，各维度满分分别是30/25/25/20）
+	result.Score = result.Scores.Availability +
+		result.Scores.Performance +
+		result.Scores.Reliability +
+		result.Scores.Resilience
 
 	// 确定等级和状态
 	result.Grade = se.determineGrade(result.Score)
@@ -85,7 +153,7 @@ func (se *StabilityEvaluator) Evaluate(metrics *core.StabilityMetrics) *core.Eva
 	return result
 }
 
-// calculateAvailabilityScore 计算可用性得分 (30分)
+// calculateAvailabilityScore 计算可用性得分 (满分30分)
 func (se *StabilityEvaluator) calculateAvailabilityScore(
 	metrics *core.StabilityMetrics,
 	result *core.EvaluationResult,
@@ -119,7 +187,7 @@ func (se *StabilityEvaluator) calculateAvailabilityScore(
 	return score
 }
 
-// calculatePerformanceScore 计算性能得分 (25分)
+// calculatePerformanceScore 计算性能得分 (满分25分)
 func (se *StabilityEvaluator) calculatePerformanceScore(
 	metrics *core.StabilityMetrics,
 	result *core.EvaluationResult,
@@ -176,7 +244,7 @@ func (se *StabilityEvaluator) calculatePerformanceScore(
 	return p95Score + p99Score
 }
 
-// calculateReliabilityScore 计算可靠性得分 (25分)
+// calculateReliabilityScore 计算可靠性得分 (满分25分)
 func (se *StabilityEvaluator) calculateReliabilityScore(
 	metrics *core.StabilityMetrics,
 	result *core.EvaluationResult,
@@ -233,7 +301,7 @@ func (se *StabilityEvaluator) calculateReliabilityScore(
 	return errorScore + lossScore
 }
 
-// calculateResilienceScore 计算恢复力得分 (20分)
+// calculateResilienceScore 计算恢复力得分 (满分20分)
 func (se *StabilityEvaluator) calculateResilienceScore(
 	metrics *core.StabilityMetrics,
 	result *core.EvaluationResult,
