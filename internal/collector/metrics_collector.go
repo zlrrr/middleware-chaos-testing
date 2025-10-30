@@ -51,7 +51,7 @@ func (mc *MetricsCollector) RecordOperation(result *core.Result) {
 	defer mc.mu.Unlock()
 
 	mc.totalOps++
-	mc.latencies = append(mc.latencies, result.Latency)
+	mc.latencies = append(mc.latencies, result.Duration)
 
 	if result.Success {
 		mc.successOps++
