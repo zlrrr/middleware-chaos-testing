@@ -92,7 +92,7 @@ func NewStabilityEvaluator(thresholds *core.Thresholds) *StabilityEvaluator {
 	}
 }
 
-// DefaultThresholds 返回默认阈值
+// DefaultThresholds 返回默认阈值（适用于Redis等低延迟中间件）
 func DefaultThresholds() *core.Thresholds {
 	return &core.Thresholds{
 		AvailabilityExcellent: 0.9999,
@@ -119,6 +119,50 @@ func DefaultThresholds() *core.Thresholds {
 		MTTRGood:      30 * time.Second,
 		MTTRFair:      60 * time.Second,
 		MTTRPass:      300 * time.Second,
+	}
+}
+
+// KafkaThresholds 返回Kafka专用阈值（符合业界最佳实践）
+// Kafka由于批处理、网络传输和持久化等因素，延迟会比内存数据库高
+func KafkaThresholds() *core.Thresholds {
+	return &core.Thresholds{
+		// 可用性标准与默认相同
+		AvailabilityExcellent: 0.9999,  // 99.99%
+		AvailabilityGood:      0.999,   // 99.9%
+		AvailabilityFair:      0.99,    // 99%
+		AvailabilityPass:      0.95,    // 95%
+
+		// Kafka P95延迟（业界标准）
+		// 优秀：10ms以内（高性能配置：批处理10ms，低延迟网络）
+		// 良好：30ms以内（标准配置：批处理10-20ms，正常网络）
+		// 尚可：50ms以内（可接受配置：批处理50ms或网络延迟较高）
+		// 及格：100ms以内（需要优化）
+		P95LatencyExcellent: 10 * time.Millisecond,
+		P95LatencyGood:      30 * time.Millisecond,
+		P95LatencyFair:      50 * time.Millisecond,
+		P95LatencyPass:      100 * time.Millisecond,
+
+		// Kafka P99延迟（业界标准）
+		// 优秀：20ms以内（极少数请求受影响）
+		// 良好：50ms以内（偶尔网络抖动或重试）
+		// 尚可：100ms以内（可能包含重试和重平衡）
+		// 及格：200ms以内（需要调优）
+		P99LatencyExcellent: 20 * time.Millisecond,
+		P99LatencyGood:      50 * time.Millisecond,
+		P99LatencyFair:      100 * time.Millisecond,
+		P99LatencyPass:      200 * time.Millisecond,
+
+		// 错误率标准（Kafka容错性较高，可接受略高的错误率）
+		ErrorRateExcellent: 0.0001,  // 0.01%
+		ErrorRateGood:      0.001,   // 0.1%
+		ErrorRateFair:      0.01,    // 1%（可能包含消费者组重平衡）
+		ErrorRatePass:      0.05,    // 5%
+
+		// MTTR标准（Kafka有自动恢复机制）
+		MTTRExcellent: 5 * time.Second,   // 快速重连
+		MTTRGood:      15 * time.Second,  // 包含重试
+		MTTRFair:      30 * time.Second,  // 可能触发重平衡
+		MTTRPass:      60 * time.Second,  // 需要手动介入
 	}
 }
 
