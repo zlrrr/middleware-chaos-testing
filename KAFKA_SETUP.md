@@ -141,6 +141,63 @@ go build ./cmd/mct
 ./mct test --help
 ```
 
+## Kafka配置参数（业界最佳实践）
+
+项目实现了符合业界标准的Kafka配置参数：
+
+### 生产者配置
+
+- **BatchSize**: 100条消息/批次 - 平衡延迟和吞吐量
+- **BatchTimeout**: 10ms - 低延迟，快速发送
+- **Compression**: snappy - 平衡压缩率和CPU使用
+- **MaxAttempts**: 3次 - 合理的重试次数
+- **RequiredAcks**: 1 (leader确认) - 平衡性能和可靠性
+- **Async**: false - 同步发送保证可靠性
+
+### 消费者配置
+
+- **MinBytes**: 1KB - 最小读取字节
+- **MaxBytes**: 1MB - 最大读取字节
+- **MaxWait**: 100ms - 低延迟消费
+- **CommitInterval**: 1s - 定期提交offset
+- **HeartbeatInterval**: 3s - 保持连接活跃
+- **SessionTimeout**: 10s - 会话超时检测
+- **RebalanceTimeout**: 60s - 重平衡超时
+
+## Kafka性能指标（业界标准）
+
+项目使用符合业界最佳实践的性能阈值：
+
+### 延迟标准
+
+| 指标 | 优秀 | 良好 | 尚可 | 及格 |
+|------|------|------|------|------|
+| **P95延迟** | ≤10ms | ≤30ms | ≤50ms | ≤100ms |
+| **P99延迟** | ≤20ms | ≤50ms | ≤100ms | ≤200ms |
+
+### 可用性标准
+
+| 等级 | 可用性 | 说明 |
+|------|--------|------|
+| **优秀** | ≥99.99% | 生产级别 |
+| **良好** | ≥99.9% | 可接受 |
+| **尚可** | ≥99% | 需要改进 |
+| **及格** | ≥95% | 需要优化 |
+
+### 错误率标准
+
+- **优秀**: ≤0.01%
+- **良好**: ≤0.1%
+- **尚可**: ≤1% (可能包含重平衡)
+- **及格**: ≤5%
+
+### MTTR标准
+
+- **优秀**: ≤5s (快速重连)
+- **良好**: ≤15s (包含重试)
+- **尚可**: ≤30s (可能触发重平衡)
+- **及格**: ≤60s (需要手动介入)
+
 ## Kafka特定指标
 
 测试会收集以下Kafka特定指标：
@@ -151,6 +208,41 @@ go build ./cmd/mct
 - **重平衡次数 (RebalanceCount)**: 消费者组重平衡次数
 
 这些指标会在评分系统中被使用，通过`EvaluateKafka()`方法进行Kafka特定的评估。
+
+## 日志和错误追踪
+
+项目实现了完整的日志系统，记录所有操作的详细信息：
+
+### 日志级别
+
+- **INFO**: 连接、配置、重要操作
+- **DEBUG**: 详细的操作信息（需启用debug模式）
+- **WARN**: 性能警告（如消息积压）
+- **ERROR**: 操作失败、连接错误
+
+### 操作日志
+
+每个操作都会记录：
+- **Timestamp**: 操作时间戳
+- **Operation**: 操作类型（produce/consume）
+- **Key**: 消息key
+- **Duration**: 操作延迟
+- **Success**: 成功/失败状态
+- **Error**: 错误详情（如果失败）
+- **Metadata**: 额外信息（topic、offset、partition等）
+
+### 日志示例
+
+```
+[2025-10-31 15:30:00.123] [INFO] [KafkaClient] Creating new Kafka client: brokers=[localhost:9092] topic=chaos-test-topic groupID=chaos-test-group
+[2025-10-31 15:30:00.125] [INFO] [KafkaClient] Connecting to Kafka: brokers=[localhost:9092] topic=chaos-test-topic
+[2025-10-31 15:30:00.130] [INFO] [KafkaClient] Writer configured: batchSize=100 batchTimeout=10ms compression=2 acks=1 async=false
+[2025-10-31 15:30:00.135] [INFO] [KafkaClient] Reader configured: minBytes=1024 maxBytes=1048576 maxWait=100ms commitInterval=1s
+[2025-10-31 15:30:00.140] [INFO] [KafkaClient] Successfully connected to Kafka
+[2025-10-31 15:30:00.145] [INFO] [KafkaClient] Operation succeeded: op=write key=test-key-1 duration=5ms metadata=map[topic:chaos-test-topic]
+[2025-10-31 15:30:00.150] [ERROR] [KafkaClient] Operation failed: op=write key=test-key-2 duration=1s error=context deadline exceeded metadata=map[]
+[2025-10-31 15:30:00.155] [WARN] [KafkaClient] High message lag detected: 1500 messages
+```
 
 ## 示例输出
 

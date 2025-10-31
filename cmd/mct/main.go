@@ -93,8 +93,16 @@ func runTest(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("test execution failed: %w", err)
 	}
 
-	// 评分
-	eval := evaluator.NewStabilityEvaluator(nil)
+	// 评分 - 根据中间件类型使用不同的阈值
+	var eval *evaluator.StabilityEvaluator
+	if middlewareType == "kafka" {
+		// Kafka使用专用阈值（符合业界最佳实践）
+		eval = evaluator.NewStabilityEvaluator(evaluator.KafkaThresholds())
+	} else {
+		// 其他中间件使用默认阈值
+		eval = evaluator.NewStabilityEvaluator(nil)
+	}
+
 	var result *core.EvaluationResult
 
 	switch middlewareType {
