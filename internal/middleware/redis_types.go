@@ -15,41 +15,7 @@ type RedisConfig struct {
 	Timeout  time.Duration // 超时时间
 }
 
-// RedisClient Redis客户端（接口声明，实现在redis_client.go）
-type RedisClient struct {
-	// 字段将在实现时定义
-}
-
-// NewRedisClient 创建新的Redis客户端
-func NewRedisClient(config *RedisConfig) *RedisClient {
-	// 占位符，实际实现在Phase 1.2
-	return &RedisClient{}
-}
-
-// Connect 占位符
-func (r *RedisClient) Connect(ctx interface{}) error {
-	return core.ErrClientNotConnected
-}
-
-// Disconnect 占位符
-func (r *RedisClient) Disconnect(ctx interface{}) error {
-	return nil
-}
-
-// Execute 占位符
-func (r *RedisClient) Execute(ctx interface{}, op core.Operation) (*core.Result, error) {
-	return nil, core.ErrClientNotConnected
-}
-
-// HealthCheck 占位符
-func (r *RedisClient) HealthCheck(ctx interface{}) error {
-	return core.ErrClientNotConnected
-}
-
-// GetMetrics 占位符
-func (r *RedisClient) GetMetrics() *core.ClientMetrics {
-	return &core.ClientMetrics{}
-}
+// RedisClient 的完整实现在 redis_client.go 中
 
 // RedisSetOperation SET操作
 type RedisSetOperation struct {
