@@ -135,13 +135,13 @@ func runTest(cmd *cobra.Command, args []string) error {
 }
 
 func executeTest(ctx context.Context, middlewareType, host string, port int, duration time.Duration, operations int) (*core.StabilityMetrics, error) {
-	collector := collector.NewMetricsCollector()
+	coll := collector.NewMetricsCollector()
 
 	switch middlewareType {
 	case "redis":
-		return executeRedisTest(ctx, host, port, duration, operations, collector)
+		return executeRedisTest(ctx, host, port, duration, operations, coll)
 	case "kafka":
-		return nil, fmt.Errorf("kafka test not implemented yet")
+		return executeKafkaTest(ctx, host, port, duration, operations, coll)
 	default:
 		return nil, fmt.Errorf("unsupported middleware type: %s", middlewareType)
 	}
@@ -212,6 +212,84 @@ func executeRedisTest(ctx context.Context, host string, port int, duration time.
 
 DONE:
 	return coll.GetMetrics(), nil
+}
+
+func executeKafkaTest(ctx context.Context, host string, port int, duration time.Duration, operations int, coll *collector.MetricsCollector) (*core.StabilityMetrics, error) {
+	// 创建Kafka客户端
+	brokers := []string{fmt.Sprintf("%s:%d", host, port)}
+	cfg := &middleware.KafkaConfig{
+		Brokers: brokers,
+		Topic:   "chaos-test-topic",
+		GroupID: "chaos-test-group",
+		Timeout: 5 * time.Second,
+	}
+
+	client := middleware.NewKafkaClient(cfg)
+
+	// 连接
+	startConnect := time.Now()
+	if err := client.Connect(ctx); err != nil {
+		coll.RecordConnectionAttempt(false, time.Since(startConnect))
+		return nil, fmt.Errorf("failed to connect to Kafka: %w", err)
+	}
+	coll.RecordConnectionAttempt(true, time.Since(startConnect))
+	defer client.Disconnect(ctx)
+
+	// 运行测试
+	testCtx, cancel := context.WithTimeout(ctx, duration)
+	defer cancel()
+
+	opsPerformed := 0
+	ticker := time.NewTicker(duration / time.Duration(operations))
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-testCtx.Done():
+			goto DONE
+		case <-ticker.C:
+			if opsPerformed >= operations {
+				goto DONE
+			}
+
+			// 执行操作（Produce + Consume）
+			key := fmt.Sprintf("test-key-%d", opsPerformed)
+			value := fmt.Sprintf("test-value-%d-%d", opsPerformed, time.Now().Unix())
+
+			// Produce操作
+			produceOp := &middleware.KafkaProduceOperation{
+				OpKey:   key,
+				OpValue: []byte(value),
+			}
+			produceResult, _ := client.Execute(testCtx, produceOp)
+			if produceResult != nil {
+				coll.RecordOperation(produceResult)
+			}
+
+			// Consume操作（尝试读取）
+			consumeOp := &middleware.KafkaConsumeOperation{
+				MaxWait: 100 * time.Millisecond,
+			}
+			consumeResult, _ := client.Execute(testCtx, consumeOp)
+			if consumeResult != nil {
+				coll.RecordOperation(consumeResult)
+			}
+
+			opsPerformed += 2
+		}
+	}
+
+DONE:
+	// 获取Kafka统计信息
+	stats := client.GetStats()
+	metrics := coll.GetMetrics()
+
+	// 添加Kafka特定指标
+	if lag, ok := stats["reader_lag"].(int64); ok {
+		metrics.MessageLag = lag
+	}
+
+	return metrics, nil
 }
 
 func generateReport(metrics *core.StabilityMetrics, evaluation *core.EvaluationResult, format string, output *os.File) error {
