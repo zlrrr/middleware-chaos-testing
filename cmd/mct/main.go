@@ -380,8 +380,8 @@ func executeMongoDBTest(ctx context.Context, host string, port int, duration tim
 
 			docID := fmt.Sprintf("test-doc-%d", opsPerformed)
 			document := map[string]interface{}{
-				"_id":   docID,
-				"value": fmt.Sprintf("test-value-%d", opsPerformed),
+				"_id":       docID,
+				"value":     fmt.Sprintf("test-value-%d", opsPerformed),
 				"timestamp": time.Now().Unix(),
 			}
 
@@ -414,11 +414,11 @@ DONE:
 func executeRocketMQTest(ctx context.Context, host string, port int, duration time.Duration, operations int, coll *collector.MetricsCollector) (*core.StabilityMetrics, error) {
 	// 创建RocketMQ客户端
 	cfg := &middleware.RocketMQConfig{
-		NameServers:   []string{fmt.Sprintf("%s:%d", host, port)},
-		Topic:         "chaos-test-topic",
-		ProducerGroup: "chaos-test-producer",
-		ConsumerGroup: "chaos-test-consumer",
-		Timeout:       5 * time.Second,
+		NameServers:    []string{fmt.Sprintf("%s:%d", host, port)},
+		Topic:          "chaos-test-topic",
+		ProducerGroup:  "chaos-test-producer",
+		ConsumerGroup:  "chaos-test-consumer",
+		SendMsgTimeout: 5 * time.Second,
 	}
 
 	client := middleware.NewRocketMQClient(cfg)
@@ -451,8 +451,11 @@ func executeRocketMQTest(ctx context.Context, host string, port int, duration ti
 
 			// Send操作
 			sendOp := &middleware.RocketMQSendOperation{
-				OpKey:   fmt.Sprintf("test-key-%d", opsPerformed),
-				OpValue: []byte(fmt.Sprintf("test-value-%d", opsPerformed)),
+				Message: &middleware.RocketMQMessage{
+					Topic: cfg.Topic,
+					Key:   fmt.Sprintf("test-key-%d", opsPerformed),
+					Body:  []byte(fmt.Sprintf("test-value-%d", opsPerformed)),
+				},
 			}
 			sendResult, _ := client.Execute(testCtx, sendOp)
 			if sendResult != nil {
@@ -506,8 +509,13 @@ func executeRabbitMQTest(ctx context.Context, host string, port int, duration ti
 
 			// Publish操作
 			publishOp := &middleware.RabbitMQPublishOperation{
-				OpKey:   fmt.Sprintf("test-key-%d", opsPerformed),
-				OpValue: []byte(fmt.Sprintf("test-value-%d", opsPerformed)),
+				Message: &middleware.RabbitMQMessage{
+					Exchange:   cfg.Exchange,
+					RoutingKey: cfg.RoutingKey,
+					Body:       []byte(fmt.Sprintf("test-value-%d", opsPerformed)),
+					MessageID:  fmt.Sprintf("test-key-%d", opsPerformed),
+					Persistent: cfg.Persistent,
+				},
 			}
 			publishResult, _ := client.Execute(testCtx, publishOp)
 			if publishResult != nil {

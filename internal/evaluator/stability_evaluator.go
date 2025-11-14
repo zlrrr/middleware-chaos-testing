@@ -127,10 +127,10 @@ func DefaultThresholds() *core.Thresholds {
 func KafkaThresholds() *core.Thresholds {
 	return &core.Thresholds{
 		// 可用性标准与默认相同
-		AvailabilityExcellent: 0.9999,  // 99.99%
-		AvailabilityGood:      0.999,   // 99.9%
-		AvailabilityFair:      0.99,    // 99%
-		AvailabilityPass:      0.95,    // 95%
+		AvailabilityExcellent: 0.9999, // 99.99%
+		AvailabilityGood:      0.999,  // 99.9%
+		AvailabilityFair:      0.99,   // 99%
+		AvailabilityPass:      0.95,   // 95%
 
 		// Kafka P95延迟（业界标准）
 		// 优秀：10ms以内（高性能配置：批处理10ms，低延迟网络）
@@ -153,16 +153,16 @@ func KafkaThresholds() *core.Thresholds {
 		P99LatencyPass:      200 * time.Millisecond,
 
 		// 错误率标准（Kafka容错性较高，可接受略高的错误率）
-		ErrorRateExcellent: 0.0001,  // 0.01%
-		ErrorRateGood:      0.001,   // 0.1%
-		ErrorRateFair:      0.01,    // 1%（可能包含消费者组重平衡）
-		ErrorRatePass:      0.05,    // 5%
+		ErrorRateExcellent: 0.0001, // 0.01%
+		ErrorRateGood:      0.001,  // 0.1%
+		ErrorRateFair:      0.01,   // 1%（可能包含消费者组重平衡）
+		ErrorRatePass:      0.05,   // 5%
 
 		// MTTR标准（Kafka有自动恢复机制）
-		MTTRExcellent: 5 * time.Second,   // 快速重连
-		MTTRGood:      15 * time.Second,  // 包含重试
-		MTTRFair:      30 * time.Second,  // 可能触发重平衡
-		MTTRPass:      60 * time.Second,  // 需要手动介入
+		MTTRExcellent: 5 * time.Second,  // 快速重连
+		MTTRGood:      15 * time.Second, // 包含重试
+		MTTRFair:      30 * time.Second, // 可能触发重平衡
+		MTTRPass:      60 * time.Second, // 需要手动介入
 	}
 }
 
@@ -171,10 +171,10 @@ func KafkaThresholds() *core.Thresholds {
 func MongoDBThresholds() *core.Thresholds {
 	return &core.Thresholds{
 		// 可用性标准
-		AvailabilityExcellent: 0.9999,  // 99.99%
-		AvailabilityGood:      0.999,   // 99.9%
-		AvailabilityFair:      0.99,    // 99%
-		AvailabilityPass:      0.95,    // 95%
+		AvailabilityExcellent: 0.9999, // 99.99%
+		AvailabilityGood:      0.999,  // 99.9%
+		AvailabilityFair:      0.99,   // 99%
+		AvailabilityPass:      0.95,   // 95%
 
 		// MongoDB P95延迟标准（单文档操作）
 		// 优秀：20ms以内（SSD存储，本地网络）
@@ -197,10 +197,10 @@ func MongoDBThresholds() *core.Thresholds {
 		P99LatencyPass:      500 * time.Millisecond,
 
 		// 错误率标准
-		ErrorRateExcellent: 0.0001,  // 0.01%
-		ErrorRateGood:      0.001,   // 0.1%
-		ErrorRateFair:      0.01,    // 1%
-		ErrorRatePass:      0.05,    // 5%
+		ErrorRateExcellent: 0.0001, // 0.01%
+		ErrorRateGood:      0.001,  // 0.1%
+		ErrorRateFair:      0.01,   // 1%
+		ErrorRatePass:      0.05,   // 5%
 
 		// MTTR标准
 		MTTRExcellent: 5 * time.Second,   // 快速重连
@@ -291,10 +291,10 @@ func RabbitMQThresholds() *core.Thresholds {
 		ErrorRatePass:      0.05,   // 5%
 
 		// MTTR标准（RabbitMQ镜像队列自动切换）
-		MTTRExcellent: 5 * time.Second,   // 快速重连和通道重建
-		MTTRGood:      15 * time.Second,  // 包含镜像队列切换
-		MTTRFair:      30 * time.Second,  // 可能需要重新声明资源
-		MTTRPass:      60 * time.Second,  // 需要手动介入
+		MTTRExcellent: 5 * time.Second,  // 快速重连和通道重建
+		MTTRGood:      15 * time.Second, // 包含镜像队列切换
+		MTTRFair:      30 * time.Second, // 可能需要重新声明资源
+		MTTRPass:      60 * time.Second, // 需要手动介入
 	}
 }
 
@@ -335,10 +335,10 @@ func EMQXThresholds() *core.Thresholds {
 		ErrorRatePass:      0.1,   // 10%（考虑到移动网络不稳定）
 
 		// MTTR标准（MQTT自动重连）
-		MTTRExcellent: 5 * time.Second,   // 快速重连
-		MTTRGood:      15 * time.Second,  // 包含指数退避
-		MTTRFair:      30 * time.Second,  // 可能需要重新订阅
-		MTTRPass:      60 * time.Second,  // 需要手动介入
+		MTTRExcellent: 5 * time.Second,  // 快速重连
+		MTTRGood:      15 * time.Second, // 包含指数退避
+		MTTRFair:      30 * time.Second, // 可能需要重新订阅
+		MTTRPass:      60 * time.Second, // 需要手动介入
 	}
 }
 
@@ -389,8 +389,8 @@ func NacosThresholds() *core.Thresholds {
 // Evaluate 评估稳定性指标
 func (se *StabilityEvaluator) Evaluate(metrics *core.StabilityMetrics) *core.EvaluationResult {
 	result := &core.EvaluationResult{
-		EvaluatedAt: time.Now(),
-		Issues:      make([]core.Issue, 0),
+		EvaluatedAt:     time.Now(),
+		Issues:          make([]core.Issue, 0),
 		Recommendations: make([]core.Recommendation, 0),
 	}
 
@@ -847,6 +847,36 @@ func (se *StabilityEvaluator) EvaluateKafka(metrics *core.StabilityMetrics) *cor
 	}
 
 	return result
+}
+
+// EvaluateMongoDB MongoDB特定评估
+func (se *StabilityEvaluator) EvaluateMongoDB(metrics *core.StabilityMetrics) *core.EvaluationResult {
+	// MongoDB使用通用评估逻辑
+	return se.Evaluate(metrics)
+}
+
+// EvaluateRocketMQ RocketMQ特定评估
+func (se *StabilityEvaluator) EvaluateRocketMQ(metrics *core.StabilityMetrics) *core.EvaluationResult {
+	// RocketMQ使用通用评估逻辑
+	return se.Evaluate(metrics)
+}
+
+// EvaluateRabbitMQ RabbitMQ特定评估
+func (se *StabilityEvaluator) EvaluateRabbitMQ(metrics *core.StabilityMetrics) *core.EvaluationResult {
+	// RabbitMQ使用通用评估逻辑
+	return se.Evaluate(metrics)
+}
+
+// EvaluateEMQX EMQX特定评估
+func (se *StabilityEvaluator) EvaluateEMQX(metrics *core.StabilityMetrics) *core.EvaluationResult {
+	// EMQX使用通用评估逻辑
+	return se.Evaluate(metrics)
+}
+
+// EvaluateNacos Nacos特定评估
+func (se *StabilityEvaluator) EvaluateNacos(metrics *core.StabilityMetrics) *core.EvaluationResult {
+	// Nacos使用通用评估逻辑
+	return se.Evaluate(metrics)
 }
 
 // SetThresholds 设置自定义阈值
