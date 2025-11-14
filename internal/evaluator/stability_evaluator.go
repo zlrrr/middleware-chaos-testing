@@ -166,6 +166,50 @@ func KafkaThresholds() *core.Thresholds {
 	}
 }
 
+// MongoDBThresholds 返回MongoDB专用阈值（符合业界最佳实践）
+// MongoDB作为文档数据库，单文档读写性能优秀，但聚合查询会较慢
+func MongoDBThresholds() *core.Thresholds {
+	return &core.Thresholds{
+		// 可用性标准
+		AvailabilityExcellent: 0.9999,  // 99.99%
+		AvailabilityGood:      0.999,   // 99.9%
+		AvailabilityFair:      0.99,    // 99%
+		AvailabilityPass:      0.95,    // 95%
+
+		// MongoDB P95延迟标准（单文档操作）
+		// 优秀：20ms以内（SSD存储，本地网络）
+		// 良好：50ms以内（HDD存储或远程网络）
+		// 尚可：100ms以内（复杂查询或大文档）
+		// 及格：200ms以内（需要优化索引）
+		P95LatencyExcellent: 20 * time.Millisecond,
+		P95LatencyGood:      50 * time.Millisecond,
+		P95LatencyFair:      100 * time.Millisecond,
+		P95LatencyPass:      200 * time.Millisecond,
+
+		// MongoDB P99延迟标准
+		// 优秀：50ms以内
+		// 良好：100ms以内
+		// 尚可：200ms以内
+		// 及格：500ms以内
+		P99LatencyExcellent: 50 * time.Millisecond,
+		P99LatencyGood:      100 * time.Millisecond,
+		P99LatencyFair:      200 * time.Millisecond,
+		P99LatencyPass:      500 * time.Millisecond,
+
+		// 错误率标准
+		ErrorRateExcellent: 0.0001,  // 0.01%
+		ErrorRateGood:      0.001,   // 0.1%
+		ErrorRateFair:      0.01,    // 1%
+		ErrorRatePass:      0.05,    // 5%
+
+		// MTTR标准
+		MTTRExcellent: 5 * time.Second,   // 快速重连
+		MTTRGood:      30 * time.Second,  // 包含重试和副本切换
+		MTTRFair:      60 * time.Second,  // 可能需要选举新主节点
+		MTTRPass:      300 * time.Second, // 需要手动介入
+	}
+}
+
 // Evaluate 评估稳定性指标
 func (se *StabilityEvaluator) Evaluate(metrics *core.StabilityMetrics) *core.EvaluationResult {
 	result := &core.EvaluationResult{

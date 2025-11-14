@@ -8,6 +8,7 @@ require (
 	github.com/redis/go-redis/v9 v9.3.0
 	github.com/segmentio/kafka-go v0.4.49
 	github.com/stretchr/testify v1.11.1
+	go.mongodb.org/mongo-driver v1.17.3
 )
 
 require (
