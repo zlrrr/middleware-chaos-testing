@@ -298,6 +298,50 @@ func RabbitMQThresholds() *core.Thresholds {
 	}
 }
 
+// EMQXThresholds 返回EMQX专用阈值（符合MQTT协议和物联网场景最佳实践）
+// EMQX作为高性能MQTT消息中间件，支持海量设备连接和低延迟消息传输
+func EMQXThresholds() *core.Thresholds {
+	return &core.Thresholds{
+		// 可用性标准（物联网场景）
+		AvailabilityExcellent: 0.9999, // 99.99%
+		AvailabilityGood:      0.999,  // 99.9%
+		AvailabilityFair:      0.99,   // 99%
+		AvailabilityPass:      0.95,   // 95%
+
+		// MQTT/EMQX P95延迟标准（物联网场景）
+		// 优秀：50ms以内（物联网场景可接受，考虑弱网络环境）
+		// 良好：100ms以内（包含移动网络延迟）
+		// 尚可：200ms以内（包含QoS 2四次握手）
+		// 及格：500ms以内（需要优化）
+		P95LatencyExcellent: 50 * time.Millisecond,
+		P95LatencyGood:      100 * time.Millisecond,
+		P95LatencyFair:      200 * time.Millisecond,
+		P95LatencyPass:      500 * time.Millisecond,
+
+		// MQTT/EMQX P99延迟标准
+		// 优秀：100ms以内
+		// 良好：200ms以内
+		// 尚可：500ms以内
+		// 及格：1s以内
+		P99LatencyExcellent: 100 * time.Millisecond,
+		P99LatencyGood:      200 * time.Millisecond,
+		P99LatencyFair:      500 * time.Millisecond,
+		P99LatencyPass:      1 * time.Second,
+
+		// 错误率标准（物联网弱网络环境）
+		ErrorRateExcellent: 0.001, // 0.1%
+		ErrorRateGood:      0.01,  // 1%
+		ErrorRateFair:      0.05,  // 5%
+		ErrorRatePass:      0.1,   // 10%（考虑到移动网络不稳定）
+
+		// MTTR标准（MQTT自动重连）
+		MTTRExcellent: 5 * time.Second,   // 快速重连
+		MTTRGood:      15 * time.Second,  // 包含指数退避
+		MTTRFair:      30 * time.Second,  // 可能需要重新订阅
+		MTTRPass:      60 * time.Second,  // 需要手动介入
+	}
+}
+
 // Evaluate 评估稳定性指标
 func (se *StabilityEvaluator) Evaluate(metrics *core.StabilityMetrics) *core.EvaluationResult {
 	result := &core.EvaluationResult{
