@@ -342,6 +342,50 @@ func EMQXThresholds() *core.Thresholds {
 	}
 }
 
+// NacosThresholds 返回Nacos专用阈值（符合服务注册中心和配置中心最佳实践）
+// Nacos作为关键的基础设施组件，要求极高的可用性和快速的服务发现能力
+func NacosThresholds() *core.Thresholds {
+	return &core.Thresholds{
+		// 可用性标准（注册中心关键性高）
+		AvailabilityExcellent: 0.99999, // 99.999% (5个9，注册中心关键)
+		AvailabilityGood:      0.9999,  // 99.99% (4个9)
+		AvailabilityFair:      0.999,   // 99.9%
+		AvailabilityPass:      0.99,    // 99%
+
+		// Nacos P95延迟标准（服务注册/发现操作）
+		// 优秀：10ms以内（本地网络，快速响应）
+		// 良好：50ms以内（跨区域或包含gRPC通信）
+		// 尚可：100ms以内（网络延迟或负载较高）
+		// 及格：200ms以内（需要优化）
+		P95LatencyExcellent: 10 * time.Millisecond,
+		P95LatencyGood:      50 * time.Millisecond,
+		P95LatencyFair:      100 * time.Millisecond,
+		P95LatencyPass:      200 * time.Millisecond,
+
+		// Nacos P99延迟标准
+		// 优秀：20ms以内（极少数请求受影响）
+		// 良好：100ms以内（可能包含配置下发）
+		// 尚可：200ms以内（可能包含集群同步）
+		// 及格：500ms以内（需要调优）
+		P99LatencyExcellent: 20 * time.Millisecond,
+		P99LatencyGood:      100 * time.Millisecond,
+		P99LatencyFair:      200 * time.Millisecond,
+		P99LatencyPass:      500 * time.Millisecond,
+
+		// 错误率标准（注册中心要求更严格）
+		ErrorRateExcellent: 0.00001, // 0.001% (极低错误率)
+		ErrorRateGood:      0.0001,  // 0.01%
+		ErrorRateFair:      0.001,   // 0.1%
+		ErrorRatePass:      0.01,    // 1%
+
+		// MTTR标准（Nacos集群自动切换）
+		MTTRExcellent: 3 * time.Second,  // 快速重连和节点切换
+		MTTRGood:      10 * time.Second, // 包含重试和服务列表更新
+		MTTRFair:      30 * time.Second, // 可能需要集群恢复
+		MTTRPass:      60 * time.Second, // 需要人工介入
+	}
+}
+
 // Evaluate 评估稳定性指标
 func (se *StabilityEvaluator) Evaluate(metrics *core.StabilityMetrics) *core.EvaluationResult {
 	result := &core.EvaluationResult{
