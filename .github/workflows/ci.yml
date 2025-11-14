@@ -100,7 +100,7 @@ jobs:
         run: go build -v -o bin/mct-server ./cmd/mct-server
 
       - name: Test mct version
-        run: ./bin/mct version
+        run: ./bin/mct --version
 
   build-web:
     name: Build Web UI
