@@ -12,6 +12,7 @@ type RocketMQConfig struct {
 	Topic       string   // 主题
 	ProducerGroup string // 生产者组
 	ConsumerGroup string // 消费者组
+	Protocol      string // 连接协议: "remoting" 或 "grpc"，默认: "remoting" (RocketMQ 5.1.3)
 
 	// 生产者配置
 	SendMsgTimeout time.Duration // 发送消息超时，默认: 3s
@@ -29,8 +30,17 @@ type RocketMQConfig struct {
 	MaxReconsumeTimes int // 最大重新消费次数，默认: -1（无限）
 }
 
+// RocketMQ 5.1.3 协议常量
+const (
+	ProtocolRemoting = "remoting" // 传统remoting协议（默认，兼容性好）
+	ProtocolGRPC     = "grpc"     // gRPC协议（RocketMQ 5.x推荐，性能更优）
+)
+
 // ApplyDefaults 应用默认配置
 func (c *RocketMQConfig) ApplyDefaults() {
+	if c.Protocol == "" {
+		c.Protocol = ProtocolRemoting // 默认使用remoting协议（兼容性好）
+	}
 	if c.SendMsgTimeout == 0 {
 		c.SendMsgTimeout = 3 * time.Second
 	}

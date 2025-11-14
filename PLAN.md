@@ -35,6 +35,57 @@
 - **中间件客户端**:
   - Redis: go-redis / redis-py
   - Kafka: sarama / confluent-kafka-python
+  - MongoDB: mongo-driver (Go)
+  - RocketMQ: rocketmq-client-go
+  - RabbitMQ: amqp091-go
+  - EMQX: paho.mqtt.golang
+  - Nacos: nacos-sdk-go
+
+### 中间件版本兼容性
+
+本项目客户端实现针对以下中间件版本进行适配和测试：
+
+| 中间件 | 目标版本 | 客户端库 | 关键特性支持 |
+|--------|----------|----------|--------------|
+| **Redis** | 6.x / 7.x | `github.com/redis/go-redis/v9` | 支持Redis 6.x和7.x全部特性 |
+| **Kafka** | 2.7.2 | `github.com/segmentio/kafka-go` | 支持Kafka 2.x协议 |
+| **MongoDB** | 4.4.13 | `go.mongodb.org/mongo-driver` | 兼容MongoDB 4.4 Wire Protocol |
+| **RocketMQ** | 5.1.3 | `github.com/apache/rocketmq-client-go/v2` | **支持remoting和grpc两种协议** |
+| **RabbitMQ** | 3.12.7 | `github.com/rabbitmq/amqp091-go` | 完整AMQP 0-9-1协议支持 |
+| **EMQX** | 5.8 (社区版) | `github.com/eclipse/paho.mqtt.golang` | MQTT 3.1.1 / 5.0协议 |
+| **Nacos** | 2.4.3 | `github.com/nacos-group/nacos-sdk-go/v2` | 支持2.x新特性 |
+
+#### 版本特定配置说明
+
+**RocketMQ 5.1.3 协议选择**:
+```go
+type RocketMQConfig struct {
+    // ... 其他配置
+    Protocol string // "remoting" 或 "grpc"，默认: "remoting"
+}
+```
+- `remoting`: RocketMQ传统协议（兼容性更好）
+- `grpc`: gRPC协议（性能更优，RocketMQ 5.x推荐）
+
+**MongoDB 4.4.13 注意事项**:
+- 支持Replica Set和Sharded Cluster
+- 不支持MongoDB 5.0+的新特性（Time Series Collections等）
+- Wire Protocol Version: 13
+
+**RabbitMQ 3.12.7 注意事项**:
+- AMQP 0-9-1协议完整支持
+- 支持所有交换机类型、死信队列、优先级队列
+- 不支持AMQP 1.0协议
+
+**EMQX 5.8 社区版**:
+- 支持MQTT 3.1.1和5.0协议
+- QoS 0/1/2全支持
+- 共享订阅、保留消息、遗嘱消息
+
+**Nacos 2.4.3**:
+- 支持2.x gRPC长连接
+- 配置管理和服务发现
+- 命名空间、分组隔离
 - **指标收集**: Prometheus Client
 - **数据存储**: SQLite (MVP) → PostgreSQL (生产)
 - **测试框架**: 
@@ -2107,6 +2158,7 @@ type RocketMQConfig struct {
     Topic            string
     ProducerGroup    string
     ConsumerGroup    string
+    Protocol         string        // "remoting" 或 "grpc"，默认: "remoting" (RocketMQ 5.1.3)
 
     // 生产者配置
     SendMsgTimeout   time.Duration // 默认: 3s
@@ -2120,6 +2172,12 @@ type RocketMQConfig struct {
     PullBatchSize    int           // 默认: 32
     ConsumeTimeout   time.Duration // 默认: 15分钟
 }
+
+// RocketMQ 5.1.3 协议常量
+const (
+    ProtocolRemoting = "remoting"  // 传统remoting协议（默认）
+    ProtocolGRPC     = "grpc"      // gRPC协议（推荐用于5.x）
+)
 
 // internal/middleware/rocketmq_client.go
 type RocketMQClient struct {
