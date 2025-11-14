@@ -84,6 +84,15 @@ jobs:
           go-version: '1.23'
           cache: true
 
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Tidy dependencies
+        run: go mod tidy
+
+      - name: Verify dependencies
+        run: go mod verify
+
       - name: Build mct CLI
         run: go build -v -o bin/mct ./cmd/mct
 
