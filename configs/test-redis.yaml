@@ -1,0 +1,19 @@
+name: "Redis Stability Test"
+middleware: "redis"
+
+connection:
+  host: "localhost"
+  port: 6379
+  password: ""
+  db: 0
+  timeout: 5s
+
+test:
+  duration: 60s
+  operations: 10000
+  concurrency: 10
+
+output:
+  format: "console"
+  path: ""
+  include_recommendations: true

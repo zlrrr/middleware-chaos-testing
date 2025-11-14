@@ -52,9 +52,9 @@ var (
 )
 
 func init() {
-	testCmd.Flags().StringVar(&middlewareType, "middleware", "", "Middleware type (redis|kafka) [required]")
+	testCmd.Flags().StringVar(&middlewareType, "middleware", "", "Middleware type (redis|kafka|mongodb|rocketmq|rabbitmq|emqx|nacos) [required]")
 	testCmd.Flags().StringVar(&host, "host", "localhost", "Middleware host")
-	testCmd.Flags().IntVar(&port, "port", 0, "Middleware port (default: 6379 for redis, 9092 for kafka)")
+	testCmd.Flags().IntVar(&port, "port", 0, "Middleware port")
 	testCmd.Flags().DurationVar(&duration, "duration", 60*time.Second, "Test duration")
 	testCmd.Flags().IntVar(&operations, "operations", 10000, "Number of operations to perform")
 	testCmd.Flags().StringVar(&outputFormat, "output", "console", "Output format (console|json|markdown)")
@@ -74,6 +74,16 @@ func runTest(cmd *cobra.Command, args []string) error {
 			port = 6379
 		case "kafka":
 			port = 9092
+		case "mongodb":
+			port = 27017
+		case "rocketmq":
+			port = 9876 // NameServer port
+		case "rabbitmq":
+			port = 5672
+		case "emqx":
+			port = 1883
+		case "nacos":
+			port = 8848
 		default:
 			return fmt.Errorf("unsupported middleware type: %s", middlewareType)
 		}
@@ -95,11 +105,22 @@ func runTest(cmd *cobra.Command, args []string) error {
 
 	// 评分 - 根据中间件类型使用不同的阈值
 	var eval *evaluator.StabilityEvaluator
-	if middlewareType == "kafka" {
-		// Kafka使用专用阈值（符合业界最佳实践）
+
+	switch middlewareType {
+	case "kafka":
 		eval = evaluator.NewStabilityEvaluator(evaluator.KafkaThresholds())
-	} else {
-		// 其他中间件使用默认阈值
+	case "mongodb":
+		eval = evaluator.NewStabilityEvaluator(evaluator.MongoDBThresholds())
+	case "rocketmq":
+		eval = evaluator.NewStabilityEvaluator(evaluator.RocketMQThresholds())
+	case "rabbitmq":
+		eval = evaluator.NewStabilityEvaluator(evaluator.RabbitMQThresholds())
+	case "emqx":
+		eval = evaluator.NewStabilityEvaluator(evaluator.EMQXThresholds())
+	case "nacos":
+		eval = evaluator.NewStabilityEvaluator(evaluator.NacosThresholds())
+	default:
+		// Redis和其他使用默认阈值
 		eval = evaluator.NewStabilityEvaluator(nil)
 	}
 
@@ -110,6 +131,16 @@ func runTest(cmd *cobra.Command, args []string) error {
 		result = eval.EvaluateRedis(metrics)
 	case "kafka":
 		result = eval.EvaluateKafka(metrics)
+	case "mongodb":
+		result = eval.EvaluateMongoDB(metrics)
+	case "rocketmq":
+		result = eval.EvaluateRocketMQ(metrics)
+	case "rabbitmq":
+		result = eval.EvaluateRabbitMQ(metrics)
+	case "emqx":
+		result = eval.EvaluateEMQX(metrics)
+	case "nacos":
+		result = eval.EvaluateNacos(metrics)
 	default:
 		result = eval.Evaluate(metrics)
 	}
@@ -150,6 +181,16 @@ func executeTest(ctx context.Context, middlewareType, host string, port int, dur
 		return executeRedisTest(ctx, host, port, duration, operations, coll)
 	case "kafka":
 		return executeKafkaTest(ctx, host, port, duration, operations, coll)
+	case "mongodb":
+		return executeMongoDBTest(ctx, host, port, duration, operations, coll)
+	case "rocketmq":
+		return executeRocketMQTest(ctx, host, port, duration, operations, coll)
+	case "rabbitmq":
+		return executeRabbitMQTest(ctx, host, port, duration, operations, coll)
+	case "emqx":
+		return executeEMQXTest(ctx, host, port, duration, operations, coll)
+	case "nacos":
+		return executeNacosTest(ctx, host, port, duration, operations, coll)
 	default:
 		return nil, fmt.Errorf("unsupported middleware type: %s", middlewareType)
 	}
@@ -298,6 +339,305 @@ DONE:
 	}
 
 	return metrics, nil
+}
+
+func executeMongoDBTest(ctx context.Context, host string, port int, duration time.Duration, operations int, coll *collector.MetricsCollector) (*core.StabilityMetrics, error) {
+	// 创建MongoDB客户端
+	cfg := &middleware.MongoDBConfig{
+		URI:        fmt.Sprintf("mongodb://%s:%d", host, port),
+		Database:   "testdb",
+		Collection: "testcol",
+		Timeout:    5 * time.Second,
+	}
+
+	client := middleware.NewMongoDBClient(cfg)
+
+	// 连接
+	startConnect := time.Now()
+	if err := client.Connect(ctx); err != nil {
+		coll.RecordConnectionAttempt(false, time.Since(startConnect))
+		return nil, fmt.Errorf("failed to connect to MongoDB: %w", err)
+	}
+	coll.RecordConnectionAttempt(true, time.Since(startConnect))
+	defer client.Disconnect(ctx)
+
+	// 运行测试
+	testCtx, cancel := context.WithTimeout(ctx, duration)
+	defer cancel()
+
+	opsPerformed := 0
+	ticker := time.NewTicker(duration / time.Duration(operations))
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-testCtx.Done():
+			goto DONE
+		case <-ticker.C:
+			if opsPerformed >= operations {
+				goto DONE
+			}
+
+			docID := fmt.Sprintf("test-doc-%d", opsPerformed)
+			document := map[string]interface{}{
+				"_id":   docID,
+				"value": fmt.Sprintf("test-value-%d", opsPerformed),
+				"timestamp": time.Now().Unix(),
+			}
+
+			// Insert操作
+			insertOp := &middleware.MongoDBInsertOperation{
+				Document: document,
+			}
+			insertResult, _ := client.Execute(testCtx, insertOp)
+			if insertResult != nil {
+				coll.RecordOperation(insertResult)
+			}
+
+			// Find操作
+			findOp := &middleware.MongoDBFindOperation{
+				Filter: map[string]interface{}{"_id": docID},
+			}
+			findResult, _ := client.Execute(testCtx, findOp)
+			if findResult != nil {
+				coll.RecordOperation(findResult)
+			}
+
+			opsPerformed += 2
+		}
+	}
+
+DONE:
+	return coll.GetMetrics(), nil
+}
+
+func executeRocketMQTest(ctx context.Context, host string, port int, duration time.Duration, operations int, coll *collector.MetricsCollector) (*core.StabilityMetrics, error) {
+	// 创建RocketMQ客户端
+	cfg := &middleware.RocketMQConfig{
+		NameServers:   []string{fmt.Sprintf("%s:%d", host, port)},
+		Topic:         "chaos-test-topic",
+		ProducerGroup: "chaos-test-producer",
+		ConsumerGroup: "chaos-test-consumer",
+		Timeout:       5 * time.Second,
+	}
+
+	client := middleware.NewRocketMQClient(cfg)
+
+	// 连接
+	startConnect := time.Now()
+	if err := client.Connect(ctx); err != nil {
+		coll.RecordConnectionAttempt(false, time.Since(startConnect))
+		return nil, fmt.Errorf("failed to connect to RocketMQ: %w", err)
+	}
+	coll.RecordConnectionAttempt(true, time.Since(startConnect))
+	defer client.Disconnect(ctx)
+
+	// 运行测试
+	testCtx, cancel := context.WithTimeout(ctx, duration)
+	defer cancel()
+
+	opsPerformed := 0
+	ticker := time.NewTicker(duration / time.Duration(operations))
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-testCtx.Done():
+			goto DONE
+		case <-ticker.C:
+			if opsPerformed >= operations {
+				goto DONE
+			}
+
+			// Send操作
+			sendOp := &middleware.RocketMQSendOperation{
+				OpKey:   fmt.Sprintf("test-key-%d", opsPerformed),
+				OpValue: []byte(fmt.Sprintf("test-value-%d", opsPerformed)),
+			}
+			sendResult, _ := client.Execute(testCtx, sendOp)
+			if sendResult != nil {
+				coll.RecordOperation(sendResult)
+			}
+
+			opsPerformed++
+		}
+	}
+
+DONE:
+	return coll.GetMetrics(), nil
+}
+
+func executeRabbitMQTest(ctx context.Context, host string, port int, duration time.Duration, operations int, coll *collector.MetricsCollector) (*core.StabilityMetrics, error) {
+	// 创建RabbitMQ客户端
+	cfg := &middleware.RabbitMQConfig{
+		URL:      fmt.Sprintf("amqp://guest:guest@%s:%d/", host, port),
+		Queue:    "chaos-test-queue",
+		Exchange: "",
+		Timeout:  5 * time.Second,
+	}
+
+	client := middleware.NewRabbitMQClient(cfg)
+
+	// 连接
+	startConnect := time.Now()
+	if err := client.Connect(ctx); err != nil {
+		coll.RecordConnectionAttempt(false, time.Since(startConnect))
+		return nil, fmt.Errorf("failed to connect to RabbitMQ: %w", err)
+	}
+	coll.RecordConnectionAttempt(true, time.Since(startConnect))
+	defer client.Disconnect(ctx)
+
+	// 运行测试
+	testCtx, cancel := context.WithTimeout(ctx, duration)
+	defer cancel()
+
+	opsPerformed := 0
+	ticker := time.NewTicker(duration / time.Duration(operations))
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-testCtx.Done():
+			goto DONE
+		case <-ticker.C:
+			if opsPerformed >= operations {
+				goto DONE
+			}
+
+			// Publish操作
+			publishOp := &middleware.RabbitMQPublishOperation{
+				OpKey:   fmt.Sprintf("test-key-%d", opsPerformed),
+				OpValue: []byte(fmt.Sprintf("test-value-%d", opsPerformed)),
+			}
+			publishResult, _ := client.Execute(testCtx, publishOp)
+			if publishResult != nil {
+				coll.RecordOperation(publishResult)
+			}
+
+			opsPerformed++
+		}
+	}
+
+DONE:
+	return coll.GetMetrics(), nil
+}
+
+func executeEMQXTest(ctx context.Context, host string, port int, duration time.Duration, operations int, coll *collector.MetricsCollector) (*core.StabilityMetrics, error) {
+	// 创建EMQX客户端
+	cfg := &middleware.EMQXConfig{
+		Broker:   fmt.Sprintf("tcp://%s:%d", host, port),
+		ClientID: "chaos-test-client",
+		Topic:    "chaos/test/topic",
+		QoS:      1,
+		Timeout:  5 * time.Second,
+	}
+
+	client := middleware.NewEMQXClient(cfg)
+
+	// 连接
+	startConnect := time.Now()
+	if err := client.Connect(ctx); err != nil {
+		coll.RecordConnectionAttempt(false, time.Since(startConnect))
+		return nil, fmt.Errorf("failed to connect to EMQX: %w", err)
+	}
+	coll.RecordConnectionAttempt(true, time.Since(startConnect))
+	defer client.Disconnect(ctx)
+
+	// 运行测试
+	testCtx, cancel := context.WithTimeout(ctx, duration)
+	defer cancel()
+
+	opsPerformed := 0
+	ticker := time.NewTicker(duration / time.Duration(operations))
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-testCtx.Done():
+			goto DONE
+		case <-ticker.C:
+			if opsPerformed >= operations {
+				goto DONE
+			}
+
+			// Publish操作
+			publishOp := &middleware.EMQXPublishOperation{
+				OpTopic: cfg.Topic,
+				OpValue: []byte(fmt.Sprintf("test-message-%d", opsPerformed)),
+			}
+			publishResult, _ := client.Execute(testCtx, publishOp)
+			if publishResult != nil {
+				coll.RecordOperation(publishResult)
+			}
+
+			opsPerformed++
+		}
+	}
+
+DONE:
+	return coll.GetMetrics(), nil
+}
+
+func executeNacosTest(ctx context.Context, host string, port int, duration time.Duration, operations int, coll *collector.MetricsCollector) (*core.StabilityMetrics, error) {
+	// 创建Nacos客户端
+	cfg := &middleware.NacosConfig{
+		ServerAddr:  fmt.Sprintf("%s:%d", host, port),
+		NamespaceID: "public",
+		Group:       "DEFAULT_GROUP",
+		DataID:      "chaos-test-config",
+		Timeout:     5 * time.Second,
+	}
+
+	client := middleware.NewNacosClient(cfg)
+
+	// 连接
+	startConnect := time.Now()
+	if err := client.Connect(ctx); err != nil {
+		coll.RecordConnectionAttempt(false, time.Since(startConnect))
+		return nil, fmt.Errorf("failed to connect to Nacos: %w", err)
+	}
+	coll.RecordConnectionAttempt(true, time.Since(startConnect))
+	defer client.Disconnect(ctx)
+
+	// 运行测试
+	testCtx, cancel := context.WithTimeout(ctx, duration)
+	defer cancel()
+
+	opsPerformed := 0
+	ticker := time.NewTicker(duration / time.Duration(operations))
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-testCtx.Done():
+			goto DONE
+		case <-ticker.C:
+			if opsPerformed >= operations {
+				goto DONE
+			}
+
+			// PublishConfig操作
+			publishOp := &middleware.NacosPublishConfigOperation{
+				OpValue: fmt.Sprintf("config-value-%d", opsPerformed),
+			}
+			publishResult, _ := client.Execute(testCtx, publishOp)
+			if publishResult != nil {
+				coll.RecordOperation(publishResult)
+			}
+
+			// GetConfig操作
+			getOp := &middleware.NacosGetConfigOperation{}
+			getResult, _ := client.Execute(testCtx, getOp)
+			if getResult != nil {
+				coll.RecordOperation(getResult)
+			}
+
+			opsPerformed += 2
+		}
+	}
+
+DONE:
+	return coll.GetMetrics(), nil
 }
 
 func generateReport(metrics *core.StabilityMetrics, evaluation *core.EvaluationResult, format string, output *os.File) error {

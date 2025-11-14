@@ -1,0 +1,19 @@
+name: "Kafka Stability Test"
+middleware: "kafka"
+
+connection:
+  brokers:
+    - "localhost:9092"
+  topic: "chaos-test-topic"
+  group_id: "chaos-test-group"
+  timeout: 5s
+
+test:
+  duration: 60s
+  operations: 5000
+  concurrency: 5
+
+output:
+  format: "json"
+  path: "./reports/kafka-test.json"
+  include_recommendations: true

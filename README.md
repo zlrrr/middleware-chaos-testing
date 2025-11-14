@@ -138,6 +138,84 @@ docker-compose down
 
 ---
 
+## CLI Tool Usage
+
+The `mct` command-line tool provides direct access to middleware chaos testing without the web platform.
+
+### Basic Usage
+
+```bash
+# Test Redis
+./bin/mct test --middleware redis --host localhost --duration 30s --operations 5000
+
+# Test Kafka
+./bin/mct test --middleware kafka --host localhost --duration 60s --operations 10000
+
+# Test MongoDB
+./bin/mct test --middleware mongodb --host localhost --duration 30s
+
+# Test all 7 middleware types
+./bin/mct test --middleware redis|kafka|mongodb|rocketmq|rabbitmq|emqx|nacos
+```
+
+### CLI Options
+
+```
+Flags:
+  --middleware string    Middleware type (redis|kafka|mongodb|rocketmq|rabbitmq|emqx|nacos) [required]
+  --host string          Middleware host (default "localhost")
+  --port int             Middleware port (auto-detected by middleware type)
+  --duration duration    Test duration (default 60s)
+  --operations int       Number of operations (default 10000)
+  --output string        Output format: console|json|markdown (default "console")
+  --report-path string   Report output path (default: stdout)
+  --config string        Config file path (YAML)
+```
+
+### Output Formats
+
+```bash
+# Console output (human-readable)
+./bin/mct test --middleware redis --output console
+
+# JSON output (machine-readable)
+./bin/mct test --middleware kafka --output json
+
+# Markdown report
+./bin/mct test --middleware mongodb --output markdown --report-path ./report.md
+```
+
+### Using Configuration Files
+
+```bash
+# Use a YAML configuration file
+./bin/mct test --config configs/test-redis.yaml
+```
+
+Example configuration file (`configs/test-redis.yaml`):
+```yaml
+name: "Redis Stability Test"
+middleware: "redis"
+connection:
+  host: "localhost"
+  port: 6379
+  timeout: 5s
+test:
+  duration: 60s
+  operations: 10000
+output:
+  format: "console"
+  include_recommendations: true
+```
+
+### Exit Codes
+
+- `0`: Test passed (score ≥ 80)
+- `1`: Test failed (score < 60)
+- `2`: Test warning (60 ≤ score < 80)
+
+---
+
 ## Compilation & Build
 
 ### Build from Source
@@ -861,7 +939,7 @@ middleware-chaos-testing/
 - [x] Phase 2: Kafka client implementation
 - [x] Phase 3: Stability detector implementation
 - [x] Phase 3.5: Stability scoring system
-- [ ] Phase 4: CLI tool implementation
+- [x] Phase 4: CLI tool implementation (支持全部7种中间件)
 - [x] Phase 6: MongoDB client support
 - [x] Phase 7: RocketMQ client support
 - [x] Phase 8: RabbitMQ client support
