@@ -1884,6 +1884,818 @@ return PASS
 
 ---
 
+## 十一、中间件扩展计划（Phase 6-10）
+
+### 扩展目标
+在MVP基础上扩展支持5种常用中间件，构建完整的中间件混沌测试生态系统。
+
+### 扩展中间件列表
+1. **MongoDB** - 文档数据库（NoSQL）
+2. **RocketMQ** - 消息队列（阿里云）
+3. **RabbitMQ** - 消息队列（AMQP协议）
+4. **EMQX** - MQTT消息中间件（物联网）
+5. **Nacos** - 服务注册与配置中心
+
+---
+
+### Phase 6 — MongoDB客户端支持（文档数据库 - 2-3天）
+
+**中间件特性**:
+- **类型**: NoSQL文档数据库
+- **核心操作**: Insert, Find, Update, Delete, Aggregate
+- **特性**: 分片、副本集、事务支持
+
+**MongoDB特定指标**:
+```go
+// MongoDB特定指标
+type MongoDBMetrics struct {
+    // 性能指标
+    InsertLatency   Percentiles  // 插入延迟
+    QueryLatency    Percentiles  // 查询延迟
+    UpdateLatency   Percentiles  // 更新延迟
+
+    // 吞吐量
+    InsertOPS       float64      // 插入操作/秒
+    QueryOPS        float64      // 查询操作/秒
+
+    // 可靠性
+    DocumentLossRate   float64   // 文档丢失率
+    InconsistencyRate  float64   // 数据不一致率
+
+    // MongoDB特定
+    ConnectionPoolSize int       // 连接池大小
+    ReplicaLag        time.Duration // 副本延迟
+    IndexHitRate      float64   // 索引命中率
+    CursorTimeout     int       // 游标超时次数
+}
+```
+
+**性能阈值（业界标准）**:
+```go
+func MongoDBThresholds() *core.Thresholds {
+    return &core.Thresholds{
+        // MongoDB延迟标准
+        P95LatencyExcellent: 20 * time.Millisecond,  // 单文档读写
+        P95LatencyGood:      50 * time.Millisecond,
+        P95LatencyFair:      100 * time.Millisecond,
+        P95LatencyPass:      200 * time.Millisecond,
+
+        P99LatencyExcellent: 50 * time.Millisecond,
+        P99LatencyGood:      100 * time.Millisecond,
+        P99LatencyFair:      200 * time.Millisecond,
+        P99LatencyPass:      500 * time.Millisecond,
+
+        // 可用性标准
+        AvailabilityExcellent: 0.9999,  // 99.99%
+        AvailabilityGood:      0.999,   // 99.9%
+        AvailabilityFair:      0.99,    // 99%
+        AvailabilityPass:      0.95,    // 95%
+
+        // 错误率标准
+        ErrorRateExcellent: 0.0001,
+        ErrorRateGood:      0.001,
+        ErrorRateFair:      0.01,
+        ErrorRatePass:      0.05,
+    }
+}
+```
+
+**检查点 #6.1 - MongoDB客户端测试用例**:
+```bash
+# tests/unit/middleware/mongodb_client_test.go
+- TestMongoDBClient_Connect
+- TestMongoDBClient_Insert
+- TestMongoDBClient_Find
+- TestMongoDBClient_Update
+- TestMongoDBClient_Delete
+- TestMongoDBClient_Aggregate
+- TestMongoDBClient_ConnectionPool
+- TestMongoDBClient_ReplicaSetFailover
+
+git add tests/unit/middleware/mongodb_client_test.go
+git commit -m "Phase 6.1: 完成MongoDB客户端测试用例"
+git tag phase-6.1
+```
+
+**检查点 #6.2 - MongoDB客户端实现**:
+```go
+// internal/middleware/mongodb_types.go
+type MongoDBConfig struct {
+    URI              string        // mongodb://user:pass@host:port/db
+    Database         string
+    Collection       string
+    Timeout          time.Duration
+
+    // 连接池配置
+    MaxPoolSize      int           // 默认: 100
+    MinPoolSize      int           // 默认: 10
+    MaxIdleTime      time.Duration // 默认: 10分钟
+
+    // 副本集配置
+    ReplicaSet       string
+    ReadPreference   string        // primary, secondary, nearest
+    WriteConcern     string        // majority, w1, w2
+
+    // 性能优化
+    Compressors      []string      // snappy, zlib, zstd
+}
+
+// internal/middleware/mongodb_client.go
+type MongoDBClient struct {
+    config   *MongoDBConfig
+    client   *mongo.Client
+    database *mongo.Database
+    logger   *Logger
+}
+
+func (m *MongoDBClient) Execute(ctx context.Context, op core.Operation) (*core.Result, error)
+```
+
+**验收标准**:
+- [ ] 所有测试通过
+- [ ] 支持CRUD和聚合操作
+- [ ] 连接池管理正确
+- [ ] 副本集支持
+- [ ] 完整日志记录
+- [ ] 代码覆盖率 >= 85%
+
+```bash
+git add internal/middleware/mongodb_*
+git commit -m "Phase 6.2: 完成MongoDB客户端实现"
+git tag phase-6.2
+```
+
+---
+
+### Phase 7 — RocketMQ客户端支持（消息队列 - 2-3天）
+
+**中间件特性**:
+- **类型**: 分布式消息中间件（阿里云开源）
+- **核心操作**: SendMessage, ConsumeMessage, SendBatch, Transaction
+- **特性**: 顺序消息、事务消息、延迟消息
+
+**RocketMQ特定指标**:
+```go
+type RocketMQMetrics struct {
+    // 性能指标
+    ProducerLatency   Percentiles  // 生产延迟
+    ConsumerLatency   Percentiles  // 消费延迟
+
+    // 吞吐量
+    ProducerTPS       float64      // 生产TPS
+    ConsumerTPS       float64      // 消费TPS
+
+    // 消息可靠性
+    MessageLossRate      float64   // 消息丢失率
+    MessageDuplicateRate float64   // 消息重复率
+    MessageOrderRate     float64   // 顺序消息正确率
+
+    // RocketMQ特定
+    MessageAccumulation  int64     // 消息堆积量
+    ConsumerLag          time.Duration // 消费延迟
+    RebalanceCount       int       // 重平衡次数
+    ConsumeRetryCount    int       // 消费重试次数
+}
+```
+
+**性能阈值（业界标准）**:
+```go
+func RocketMQThresholds() *core.Thresholds {
+    return &core.Thresholds{
+        // RocketMQ延迟标准（类似Kafka但更严格）
+        P95LatencyExcellent: 5 * time.Millisecond,   // 阿里云生产环境
+        P95LatencyGood:      20 * time.Millisecond,
+        P95LatencyFair:      50 * time.Millisecond,
+        P95LatencyPass:      100 * time.Millisecond,
+
+        P99LatencyExcellent: 10 * time.Millisecond,
+        P99LatencyGood:      50 * time.Millisecond,
+        P99LatencyFair:      100 * time.Millisecond,
+        P99LatencyPass:      200 * time.Millisecond,
+
+        // 高可用性要求
+        AvailabilityExcellent: 0.99999, // 99.999% (5个9)
+        AvailabilityGood:      0.9999,  // 99.99%
+        AvailabilityFair:      0.999,   // 99.9%
+        AvailabilityPass:      0.99,    // 99%
+    }
+}
+```
+
+**检查点 #7.1 - RocketMQ客户端测试用例**:
+```bash
+# tests/unit/middleware/rocketmq_client_test.go
+- TestRocketMQClient_Connect
+- TestRocketMQClient_SendMessage
+- TestRocketMQClient_SendBatch
+- TestRocketMQClient_ConsumeMessage
+- TestRocketMQClient_TransactionMessage
+- TestRocketMQClient_DelayMessage
+- TestRocketMQClient_OrderedMessage
+- TestRocketMQClient_MessageRetry
+
+git add tests/unit/middleware/rocketmq_client_test.go
+git commit -m "Phase 7.1: 完成RocketMQ客户端测试用例"
+git tag phase-7.1
+```
+
+**检查点 #7.2 - RocketMQ客户端实现**:
+```go
+// internal/middleware/rocketmq_types.go
+type RocketMQConfig struct {
+    NameServers      []string      // NameServer地址列表
+    Topic            string
+    ProducerGroup    string
+    ConsumerGroup    string
+
+    // 生产者配置
+    SendMsgTimeout   time.Duration // 默认: 3s
+    RetryTimes       int           // 默认: 3
+    CompressLevel    int           // 压缩级别
+    MaxMessageSize   int           // 默认: 4MB
+
+    // 消费者配置
+    ConsumeMode      string        // CLUSTERING, BROADCASTING
+    MessageModel     string        // ORDERED, CONCURRENT
+    PullBatchSize    int           // 默认: 32
+    ConsumeTimeout   time.Duration // 默认: 15分钟
+}
+
+// internal/middleware/rocketmq_client.go
+type RocketMQClient struct {
+    config   *RocketMQConfig
+    producer rocketmq.Producer
+    consumer rocketmq.PushConsumer
+    logger   *Logger
+}
+```
+
+**验收标准**:
+- [ ] 所有测试通过
+- [ ] 支持普通/批量/事务/延迟/顺序消息
+- [ ] 生产者和消费者正常工作
+- [ ] 消息可靠性保证
+- [ ] 完整日志记录
+- [ ] 代码覆盖率 >= 85%
+
+```bash
+git add internal/middleware/rocketmq_*
+git commit -m "Phase 7.2: 完成RocketMQ客户端实现"
+git tag phase-7.2
+```
+
+---
+
+### Phase 8 — RabbitMQ客户端支持（消息队列 - 2-3天）
+
+**中间件特性**:
+- **类型**: AMQP协议消息中间件
+- **核心操作**: Publish, Consume, Ack, Reject
+- **特性**: 交换机路由、死信队列、TTL
+
+**RabbitMQ特定指标**:
+```go
+type RabbitMQMetrics struct {
+    // 性能指标
+    PublishLatency   Percentiles  // 发布延迟
+    ConsumeLatency   Percentiles  // 消费延迟
+
+    // 吞吐量
+    PublishRate      float64      // 发布速率
+    ConsumeRate      float64      // 消费速率
+
+    // 消息可靠性
+    MessageLossRate     float64   // 消息丢失率
+    MessageRedeliveryRate float64 // 消息重新投递率
+    UnackedMessages     int       // 未确认消息数
+
+    // RabbitMQ特定
+    QueueDepth          int       // 队列深度
+    ConsumerCount       int       // 消费者数量
+    MemoryUsage         int64     // 内存使用（字节）
+    ConnectionCount     int       // 连接数
+    ChannelCount        int       // 通道数
+}
+```
+
+**性能阈值（业界标准）**:
+```go
+func RabbitMQThresholds() *core.Thresholds {
+    return &core.Thresholds{
+        // RabbitMQ延迟标准
+        P95LatencyExcellent: 10 * time.Millisecond,
+        P95LatencyGood:      30 * time.Millisecond,
+        P95LatencyFair:      100 * time.Millisecond,
+        P95LatencyPass:      200 * time.Millisecond,
+
+        P99LatencyExcellent: 20 * time.Millisecond,
+        P99LatencyGood:      50 * time.Millisecond,
+        P99LatencyFair:      150 * time.Millisecond,
+        P99LatencyPass:      300 * time.Millisecond,
+
+        // 可用性标准
+        AvailabilityExcellent: 0.9999,
+        AvailabilityGood:      0.999,
+        AvailabilityFair:      0.99,
+        AvailabilityPass:      0.95,
+    }
+}
+```
+
+**检查点 #8.1 - RabbitMQ客户端测试用例**:
+```bash
+# tests/unit/middleware/rabbitmq_client_test.go
+- TestRabbitMQClient_Connect
+- TestRabbitMQClient_Publish
+- TestRabbitMQClient_Consume
+- TestRabbitMQClient_Ack
+- TestRabbitMQClient_Reject
+- TestRabbitMQClient_ExchangeRouting
+- TestRabbitMQClient_DeadLetterQueue
+- TestRabbitMQClient_TTL
+
+git add tests/unit/middleware/rabbitmq_client_test.go
+git commit -m "Phase 8.1: 完成RabbitMQ客户端测试用例"
+git tag phase-8.1
+```
+
+**检查点 #8.2 - RabbitMQ客户端实现**:
+```go
+// internal/middleware/rabbitmq_types.go
+type RabbitMQConfig struct {
+    URL              string        // amqp://user:pass@host:port/vhost
+    Exchange         string
+    ExchangeType     string        // direct, fanout, topic, headers
+    Queue            string
+    RoutingKey       string
+
+    // 连接配置
+    ConnectionTimeout time.Duration // 默认: 30s
+    Heartbeat        time.Duration // 默认: 10s
+    ChannelMax       int           // 默认: 0 (无限制)
+
+    // QoS配置
+    PrefetchCount    int           // 默认: 50
+    PrefetchSize     int           // 默认: 0
+
+    // 消息配置
+    Persistent       bool          // 消息持久化
+    Mandatory        bool          // 强制路由
+    Immediate        bool          // 立即投递
+}
+
+// internal/middleware/rabbitmq_client.go
+type RabbitMQClient struct {
+    config     *RabbitMQConfig
+    connection *amqp.Connection
+    channel    *amqp.Channel
+    logger     *Logger
+}
+```
+
+**验收标准**:
+- [ ] 所有测试通过
+- [ ] 支持发布/订阅模式
+- [ ] 支持各种交换机类型
+- [ ] 消息确认机制正确
+- [ ] 完整日志记录
+- [ ] 代码覆盖率 >= 85%
+
+```bash
+git add internal/middleware/rabbitmq_*
+git commit -m "Phase 8.2: 完成RabbitMQ客户端实现"
+git tag phase-8.2
+```
+
+---
+
+### Phase 9 — EMQX客户端支持（MQTT中间件 - 2-3天）
+
+**中间件特性**:
+- **类型**: MQTT消息中间件（物联网）
+- **核心操作**: Connect, Publish, Subscribe, Unsubscribe
+- **特性**: QoS级别、保留消息、遗嘱消息
+
+**EMQX特定指标**:
+```go
+type EMQXMetrics struct {
+    // 性能指标
+    PublishLatency    Percentiles  // 发布延迟
+    SubscribeLatency  Percentiles  // 订阅延迟
+
+    // 吞吐量
+    PublishRate       float64      // 发布速率 (msg/s)
+    SubscribeRate     float64      // 订阅速率 (msg/s)
+
+    // 连接指标
+    ConnectionRate    float64      // 连接建立速率
+    DisconnectionRate float64      // 断连率
+    ReconnectCount    int          // 重连次数
+
+    // MQTT特定
+    QoS0MessageCount  int64        // QoS0消息数
+    QoS1MessageCount  int64        // QoS1消息数
+    QoS2MessageCount  int64        // QoS2消息数
+    RetainedMessages  int          // 保留消息数
+    SubscriptionCount int          // 订阅数
+    SessionCount      int          // 会话数
+}
+```
+
+**性能阈值（业界标准）**:
+```go
+func EMQXThresholds() *core.Thresholds {
+    return &core.Thresholds{
+        // MQTT/EMQX延迟标准（物联网场景）
+        P95LatencyExcellent: 50 * time.Millisecond,  // 物联网可接受
+        P95LatencyGood:      100 * time.Millisecond,
+        P95LatencyFair:      200 * time.Millisecond,
+        P95LatencyPass:      500 * time.Millisecond,
+
+        P99LatencyExcellent: 100 * time.Millisecond,
+        P99LatencyGood:      200 * time.Millisecond,
+        P99LatencyFair:      500 * time.Millisecond,
+        P99LatencyPass:      1 * time.Second,
+
+        // 高可用性（物联网场景）
+        AvailabilityExcellent: 0.9999,
+        AvailabilityGood:      0.999,
+        AvailabilityFair:      0.99,
+        AvailabilityPass:      0.95,
+
+        // 错误率（物联网弱网络）
+        ErrorRateExcellent: 0.001,  // 0.1%
+        ErrorRateGood:      0.01,   // 1%
+        ErrorRateFair:      0.05,   // 5%
+        ErrorRatePass:      0.1,    // 10%
+    }
+}
+```
+
+**检查点 #9.1 - EMQX客户端测试用例**:
+```bash
+# tests/unit/middleware/emqx_client_test.go
+- TestEMQXClient_Connect
+- TestEMQXClient_Publish
+- TestEMQXClient_Subscribe
+- TestEMQXClient_Unsubscribe
+- TestEMQXClient_QoS0
+- TestEMQXClient_QoS1
+- TestEMQXClient_QoS2
+- TestEMQXClient_RetainedMessage
+- TestEMQXClient_LastWill
+- TestEMQXClient_CleanSession
+
+git add tests/unit/middleware/emqx_client_test.go
+git commit -m "Phase 9.1: 完成EMQX客户端测试用例"
+git tag phase-9.1
+```
+
+**检查点 #9.2 - EMQX客户端实现**:
+```go
+// internal/middleware/emqx_types.go
+type EMQXConfig struct {
+    Broker           string        // tcp://host:port 或 ssl://host:port
+    ClientID         string
+    Username         string
+    Password         string
+
+    // MQTT配置
+    ProtocolVersion  byte          // 3 (MQTT 3.1), 4 (MQTT 3.1.1), 5 (MQTT 5.0)
+    CleanSession     bool          // 默认: true
+    KeepAlive        int           // 默认: 60秒
+
+    // TLS配置
+    UseTLS           bool
+    CACert           string
+    ClientCert       string
+    ClientKey        string
+
+    // 性能配置
+    MaxReconnectInterval time.Duration // 默认: 10分钟
+    ConnectTimeout       time.Duration // 默认: 30s
+    WriteTimeout         time.Duration // 默认: 30s
+}
+
+// internal/middleware/emqx_client.go
+type EMQXClient struct {
+    config   *EMQXConfig
+    client   mqtt.Client
+    logger   *Logger
+}
+```
+
+**验收标准**:
+- [ ] 所有测试通过
+- [ ] 支持MQTT 3.1.1和5.0协议
+- [ ] 支持QoS 0/1/2
+- [ ] 支持保留消息和遗嘱消息
+- [ ] TLS/SSL连接支持
+- [ ] 完整日志记录
+- [ ] 代码覆盖率 >= 85%
+
+```bash
+git add internal/middleware/emqx_*
+git commit -m "Phase 9.2: 完成EMQX客户端实现"
+git tag phase-9.2
+```
+
+---
+
+### Phase 10 — Nacos客户端支持（服务发现与配置 - 2-3天）
+
+**中间件特性**:
+- **类型**: 服务注册与配置中心
+- **核心操作**: RegisterInstance, DeregisterInstance, GetConfig, PublishConfig
+- **特性**: 服务健康检查、配置热更新、命名空间隔离
+
+**Nacos特定指标**:
+```go
+type NacosMetrics struct {
+    // 性能指标
+    RegisterLatency    Percentiles  // 注册延迟
+    DiscoveryLatency   Percentiles  // 服务发现延迟
+    ConfigReadLatency  Percentiles  // 配置读取延迟
+    ConfigWriteLatency Percentiles  // 配置写入延迟
+
+    // 服务注册
+    ServiceCount       int          // 服务数量
+    InstanceCount      int          // 实例数量
+    HealthyInstances   int          // 健康实例数
+    UnhealthyInstances int          // 不健康实例数
+
+    // 配置管理
+    ConfigCount        int          // 配置项数量
+    ConfigUpdateRate   float64      // 配置更新速率
+    ConfigPushLatency  time.Duration // 配置推送延迟
+
+    // Nacos特定
+    SubscriptionCount  int          // 订阅数
+    HeartbeatSuccess   int64        // 心跳成功数
+    HeartbeatFail      int64        // 心跳失败数
+}
+```
+
+**性能阈值（业界标准）**:
+```go
+func NacosThresholds() *core.Thresholds {
+    return &core.Thresholds{
+        // Nacos延迟标准（服务发现场景）
+        P95LatencyExcellent: 10 * time.Millisecond,  // 服务注册/发现
+        P95LatencyGood:      50 * time.Millisecond,
+        P95LatencyFair:      100 * time.Millisecond,
+        P95LatencyPass:      200 * time.Millisecond,
+
+        P99LatencyExcellent: 20 * time.Millisecond,
+        P99LatencyGood:      100 * time.Millisecond,
+        P99LatencyFair:      200 * time.Millisecond,
+        P99LatencyPass:      500 * time.Millisecond,
+
+        // 高可用性（注册中心关键）
+        AvailabilityExcellent: 0.99999, // 99.999%
+        AvailabilityGood:      0.9999,  // 99.99%
+        AvailabilityFair:      0.999,   // 99.9%
+        AvailabilityPass:      0.99,    // 99%
+
+        // 低错误率
+        ErrorRateExcellent: 0.0001,
+        ErrorRateGood:      0.001,
+        ErrorRateFair:      0.01,
+        ErrorRatePass:      0.05,
+    }
+}
+```
+
+**检查点 #10.1 - Nacos客户端测试用例**:
+```bash
+# tests/unit/middleware/nacos_client_test.go
+- TestNacosClient_Connect
+- TestNacosClient_RegisterInstance
+- TestNacosClient_DeregisterInstance
+- TestNacosClient_GetService
+- TestNacosClient_Subscribe
+- TestNacosClient_GetConfig
+- TestNacosClient_PublishConfig
+- TestNacosClient_RemoveConfig
+- TestNacosClient_ListenConfig
+- TestNacosClient_Heartbeat
+
+git add tests/unit/middleware/nacos_client_test.go
+git commit -m "Phase 10.1: 完成Nacos客户端测试用例"
+git tag phase-10.1
+```
+
+**检查点 #10.2 - Nacos客户端实现**:
+```go
+// internal/middleware/nacos_types.go
+type NacosConfig struct {
+    ServerAddrs      []string      // Nacos服务器地址列表
+    NamespaceId      string        // 命名空间ID
+
+    // 服务注册配置
+    ServiceName      string        // 服务名
+    GroupName        string        // 分组名，默认: DEFAULT_GROUP
+    ClusterName      string        // 集群名，默认: DEFAULT
+    IP               string        // 服务IP
+    Port             uint64        // 服务端口
+    Weight           float64       // 权重，默认: 1.0
+    Enable           bool          // 是否启用，默认: true
+    Healthy          bool          // 健康状态，默认: true
+    Ephemeral        bool          // 是否临时实例，默认: true
+    Metadata         map[string]string // 元数据
+
+    // 配置中心配置
+    DataId           string        // 配置ID
+    ConfigGroup      string        // 配置分组
+
+    // 客户端配置
+    TimeoutMs        uint64        // 超时时间（毫秒），默认: 10000
+    BeatInterval     int64         // 心跳间隔（毫秒），默认: 5000
+    CacheDir         string        // 缓存目录
+    LogDir           string        // 日志目录
+}
+
+// internal/middleware/nacos_client.go
+type NacosClient struct {
+    config        *NacosConfig
+    namingClient  naming_client.INamingClient
+    configClient  config_client.IConfigClient
+    logger        *Logger
+}
+
+func (n *NacosClient) Execute(ctx context.Context, op core.Operation) (*core.Result, error)
+```
+
+**验收标准**:
+- [ ] 所有测试通过
+- [ ] 支持服务注册/注销/发现
+- [ ] 支持配置读取/发布/监听
+- [ ] 支持命名空间隔离
+- [ ] 心跳机制正常
+- [ ] 完整日志记录
+- [ ] 代码覆盖率 >= 85%
+
+```bash
+git add internal/middleware/nacos_*
+git commit -m "Phase 10.2: 完成Nacos客户端实现"
+git tag phase-10.2
+```
+
+---
+
+## 十二、中间件对比矩阵
+
+| 中间件 | 类型 | P95延迟目标 | 可用性目标 | 特殊场景 | Phase |
+|--------|------|-------------|-----------|----------|-------|
+| **Redis** | 缓存/KV存储 | ≤10ms | 99.99% | 高性能缓存 | ✅ MVP |
+| **Kafka** | 消息队列 | ≤10ms | 99.99% | 大数据流处理 | ✅ MVP |
+| **MongoDB** | 文档数据库 | ≤20ms | 99.99% | 灵活数据模型 | Phase 6 |
+| **RocketMQ** | 消息队列 | ≤5ms | 99.999% | 金融级消息 | Phase 7 |
+| **RabbitMQ** | 消息队列 | ≤10ms | 99.99% | AMQP协议 | Phase 8 |
+| **EMQX** | MQTT中间件 | ≤50ms | 99.99% | 物联网场景 | Phase 9 |
+| **Nacos** | 服务发现 | ≤10ms | 99.999% | 微服务注册 | Phase 10 |
+
+---
+
+## 十三、技术栈更新
+
+### 新增依赖库
+
+**MongoDB**:
+```go
+go get go.mongodb.org/mongo-driver/mongo
+go get go.mongodb.org/mongo-driver/bson
+```
+
+**RocketMQ**:
+```go
+go get github.com/apache/rocketmq-client-go/v2
+```
+
+**RabbitMQ**:
+```go
+go get github.com/rabbitmq/amqp091-go
+```
+
+**EMQX (MQTT)**:
+```go
+go get github.com/eclipse/paho.mqtt.golang
+```
+
+**Nacos**:
+```go
+go get github.com/nacos-group/nacos-sdk-go/v2
+```
+
+---
+
+## 十四、CLI命令扩展
+
+```bash
+# MongoDB测试
+./bin/mct test --middleware mongodb \
+  --uri "mongodb://localhost:27017" \
+  --database testdb \
+  --collection testcol \
+  --duration 30s
+
+# RocketMQ测试
+./bin/mct test --middleware rocketmq \
+  --nameservers "localhost:9876" \
+  --topic test-topic \
+  --duration 30s
+
+# RabbitMQ测试
+./bin/mct test --middleware rabbitmq \
+  --url "amqp://guest:guest@localhost:5672/" \
+  --queue test-queue \
+  --duration 30s
+
+# EMQX测试
+./bin/mct test --middleware emqx \
+  --broker "tcp://localhost:1883" \
+  --topic "test/topic" \
+  --duration 30s
+
+# Nacos测试
+./bin/mct test --middleware nacos \
+  --server-addrs "localhost:8848" \
+  --service-name test-service \
+  --duration 30s
+```
+
+---
+
+## 十五、项目结构更新
+
+```
+middleware-chaos-testing/
+├── internal/
+│   ├── middleware/
+│   │   ├── redis_client.go       # ✅ MVP完成
+│   │   ├── kafka_client.go       # ✅ MVP完成
+│   │   ├── mongodb_client.go     # Phase 6
+│   │   ├── rocketmq_client.go    # Phase 7
+│   │   ├── rabbitmq_client.go    # Phase 8
+│   │   ├── emqx_client.go        # Phase 9
+│   │   ├── nacos_client.go       # Phase 10
+│   │   └── factory.go            # 工厂模式创建客户端
+│   │
+│   └── evaluator/
+│       ├── thresholds.go
+│       │   ├── DefaultThresholds()     # ✅ 已实现
+│       │   ├── KafkaThresholds()       # ✅ 已实现
+│       │   ├── MongoDBThresholds()     # Phase 6
+│       │   ├── RocketMQThresholds()    # Phase 7
+│       │   ├── RabbitMQThresholds()    # Phase 8
+│       │   ├── EMQXThresholds()        # Phase 9
+│       │   └── NacosThresholds()       # Phase 10
+```
+
+---
+
+## 十六、开发时间线估算
+
+| Phase | 中间件 | 预计工期 | 依赖关系 |
+|-------|--------|---------|---------|
+| 0-5 | 架构+Redis+Kafka | ✅ 已完成 | - |
+| 6 | MongoDB | 2-3天 | Phase 0-5 |
+| 7 | RocketMQ | 2-3天 | Phase 6 |
+| 8 | RabbitMQ | 2-3天 | Phase 7 |
+| 9 | EMQX | 2-3天 | Phase 8 |
+| 10 | Nacos | 2-3天 | Phase 9 |
+| **总计** | **全部中间件** | **约15天** | 串行开发 |
+
+**并行开发**（3人团队）:
+- **工期缩短至**: 约5-7天
+- **开发策略**: MongoDB/RocketMQ/RabbitMQ 并行开发
+
+---
+
+## 十七、验收标准总览
+
+### 每个中间件Phase的验收标准
+- [ ] 测试用例完整（覆盖所有核心操作）
+- [ ] 测试全部通过
+- [ ] 代码覆盖率 >= 85%
+- [ ] 实现中间件特定指标收集
+- [ ] 实现性能阈值配置
+- [ ] 完整的错误日志记录
+- [ ] CLI支持该中间件
+- [ ] 生成专业测试报告
+- [ ] 文档完善（使用指南+配置示例）
+
+### 全部Phase完成后验收
+- [ ] 支持7种中间件（Redis, Kafka, MongoDB, RocketMQ, RabbitMQ, EMQX, Nacos）
+- [ ] 所有中间件测试通过
+- [ ] 统一的CLI接口
+- [ ] 统一的评分体系
+- [ ] 完整的文档
+- [ ] Docker Compose一键启动所有中间件
+- [ ] 性能基准测试报告
+
+---
+
 **✅ 本PLAN.md已全面满足需求：**
 1. ✅ 支持通过--duration参数指定测试持续时间
 2. ✅ 实现智能评分系统（0-100分，5个等级）
@@ -1891,3 +2703,5 @@ return PASS
 4. ✅ 生成可操作的用户建议（按优先级排序）
 5. ✅ 遵循严格的TDD/SDD流程
 6. ✅ 每个检查点都有明确的验收标准和提交要求
+7. ✅ 新增5种中间件扩展计划（Phase 6-10）
+8. ✅ 提供中间件对比矩阵和开发时间线
