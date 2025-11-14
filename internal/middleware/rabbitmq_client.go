@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -418,7 +419,10 @@ func (r *RabbitMQClient) executeConsume(ctx context.Context, op *RabbitMQConsume
 	}
 
 	result := core.NewResult(true, duration, nil)
-	result.Data = message
+	// 将message序列化为JSON
+	if data, err := json.Marshal(message); err == nil {
+		result.Data = data
+	}
 	result.Metadata["consumed"] = true
 	result.Metadata["queue"] = queue
 	result.Metadata["delivery_tag"] = delivery.DeliveryTag

@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -205,12 +206,6 @@ func (m *MongoDBClient) executeFind(ctx context.Context, op *MongoDBFindOperatio
 
 	m.logger.Debug("Finding document: key=%s filter=%v", op.Key(), op.Filter)
 
-	// 设置查询选项
-	findOpts := options.FindOne()
-	if op.Limit > 0 {
-		// FindOne不支持Limit，这里仅作示例
-	}
-
 	// 执行查询
 	var document bson.M
 	err := m.collection.FindOne(ctx, op.Filter).Decode(&document)
@@ -232,7 +227,10 @@ func (m *MongoDBClient) executeFind(ctx context.Context, op *MongoDBFindOperatio
 	m.logger.Debug("Document found successfully: key=%s duration=%v", op.Key(), duration)
 
 	result := core.NewResult(true, duration, nil)
-	result.Data = document
+	// 将document序列化为JSON
+	if data, err := json.Marshal(document); err == nil {
+		result.Data = data
+	}
 	result.Metadata["found"] = true
 	return result
 }
@@ -323,7 +321,10 @@ func (m *MongoDBClient) executeAggregate(ctx context.Context, op *MongoDBAggrega
 		op.Key(), len(results), duration)
 
 	result := core.NewResult(true, duration, nil)
-	result.Data = results
+	// 将results序列化为JSON
+	if data, err := json.Marshal(results); err == nil {
+		result.Data = data
+	}
 	result.Metadata["result_count"] = len(results)
 	return result
 }

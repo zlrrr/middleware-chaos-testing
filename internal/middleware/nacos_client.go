@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -268,7 +269,6 @@ func (n *NacosClient) executeDeregisterInstance(ctx context.Context, op *NacosDe
 		Port:        inst.Port,
 		ServiceName: inst.ServiceName,
 		GroupName:   inst.GroupName,
-		ClusterName: inst.ClusterName,
 		Ephemeral:   inst.Ephemeral,
 	})
 
@@ -328,7 +328,10 @@ func (n *NacosClient) executeGetService(ctx context.Context, op *NacosGetService
 		op.ServiceName, len(instances), duration)
 
 	result := core.NewResult(true, duration, nil)
-	result.Data = instances
+	// 将instances序列化为JSON
+	if data, err := json.Marshal(instances); err == nil {
+		result.Data = data
+	}
 	result.Metadata["service_name"] = op.ServiceName
 	result.Metadata["instance_count"] = len(instances)
 
@@ -451,7 +454,8 @@ func (n *NacosClient) executeGetConfig(ctx context.Context, op *NacosGetConfigOp
 		op.DataId, len(content), duration)
 
 	result := core.NewResult(true, duration, nil)
-	result.Data = content
+	// 将string转为[]byte
+	result.Data = []byte(content)
 	result.Metadata["data_id"] = op.DataId
 	result.Metadata["group"] = op.Group
 	result.Metadata["content_length"] = len(content)

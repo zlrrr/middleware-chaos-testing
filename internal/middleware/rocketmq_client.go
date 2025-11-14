@@ -257,18 +257,12 @@ func (r *RocketMQClient) executeSend(ctx context.Context, op *RocketMQSendOperat
 		rocketMsg.WithProperties(msg.Properties)
 	}
 
-	// 发送消息（支持顺序消息）
+	// 发送消息
+	// 注意：顺序消息功能已简化，ShardingKey仅作为Properties传递
 	var sendResult *primitive.SendResult
 	var err error
 
-	if msg.ShardingKey != "" {
-		// 顺序消息：使用ShardingKey选择队列
-		selector := producer.NewHashQueueSelector()
-		sendResult, err = r.producer.SendSync(ctx, rocketMsg, selector, msg.ShardingKey)
-	} else {
-		// 普通消息
-		sendResult, err = r.producer.SendSync(ctx, rocketMsg)
-	}
+	sendResult, err = r.producer.SendSync(ctx, rocketMsg)
 
 	duration := time.Since(startTime)
 
