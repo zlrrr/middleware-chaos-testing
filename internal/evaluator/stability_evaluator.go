@@ -254,6 +254,50 @@ func RocketMQThresholds() *core.Thresholds {
 	}
 }
 
+// RabbitMQThresholds 返回RabbitMQ专用阈值（符合AMQP协议标准和业界最佳实践）
+// RabbitMQ作为成熟的AMQP消息中间件，支持可靠消息投递和灵活路由
+func RabbitMQThresholds() *core.Thresholds {
+	return &core.Thresholds{
+		// 可用性标准
+		AvailabilityExcellent: 0.9999, // 99.99%
+		AvailabilityGood:      0.999,  // 99.9%
+		AvailabilityFair:      0.99,   // 99%
+		AvailabilityPass:      0.95,   // 95%
+
+		// RabbitMQ P95延迟标准（单消息投递）
+		// 优秀：10ms以内（内存队列，本地网络）
+		// 良好：30ms以内（持久化队列，正常网络）
+		// 尚可：100ms以内（包含复杂路由或确认）
+		// 及格：200ms以内（需要优化）
+		P95LatencyExcellent: 10 * time.Millisecond,
+		P95LatencyGood:      30 * time.Millisecond,
+		P95LatencyFair:      100 * time.Millisecond,
+		P95LatencyPass:      200 * time.Millisecond,
+
+		// RabbitMQ P99延迟标准
+		// 优秀：20ms以内（偶尔的持久化延迟）
+		// 良好：50ms以内（可能包含死信队列处理）
+		// 尚可：150ms以内（可能包含重试或确认超时）
+		// 及格：300ms以内（需要调优）
+		P99LatencyExcellent: 20 * time.Millisecond,
+		P99LatencyGood:      50 * time.Millisecond,
+		P99LatencyFair:      150 * time.Millisecond,
+		P99LatencyPass:      300 * time.Millisecond,
+
+		// 错误率标准（考虑到消息确认机制）
+		ErrorRateExcellent: 0.0001, // 0.01%
+		ErrorRateGood:      0.001,  // 0.1%
+		ErrorRateFair:      0.01,   // 1%
+		ErrorRatePass:      0.05,   // 5%
+
+		// MTTR标准（RabbitMQ镜像队列自动切换）
+		MTTRExcellent: 5 * time.Second,   // 快速重连和通道重建
+		MTTRGood:      15 * time.Second,  // 包含镜像队列切换
+		MTTRFair:      30 * time.Second,  // 可能需要重新声明资源
+		MTTRPass:      60 * time.Second,  // 需要手动介入
+	}
+}
+
 // Evaluate 评估稳定性指标
 func (se *StabilityEvaluator) Evaluate(metrics *core.StabilityMetrics) *core.EvaluationResult {
 	result := &core.EvaluationResult{
