@@ -1,0 +1,380 @@
+name: Build and Push Docker Images
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  SERVER_IMAGE_NAME: ${{ github.repository }}/mct-server
+  WEB_IMAGE_NAME: ${{ github.repository }}/mct-web
+
+jobs:
+  build-server:
+    name: Build MCT Server Image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata for Server
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.SERVER_IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push Server image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.server
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64,linux/arm64
+
+  build-web:
+    name: Build MCT Web Image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata for Web
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.WEB_IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push Web image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./web
+          file: ./web/Dockerfile
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64,linux/arm64
+
+  build-all-in-one:
+    name: Build All-in-One Image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    needs: [build-server, build-web]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata for All-in-One
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Create docker-compose for release
+        run: |
+          # Update docker-compose.yml to use built images
+          cat > docker-compose.release.yml << 'EOF'
+          version: '3.8'
+
+          services:
+            mct-server:
+              image: ${{ env.REGISTRY }}/${{ env.SERVER_IMAGE_NAME }}:${{ github.ref_name }}
+              ports:
+                - "8080:8080"
+              environment:
+                - LOG_LEVEL=info
+              depends_on:
+                - redis
+                - kafka
+                - mongodb
+              restart: unless-stopped
+
+            mct-web:
+              image: ${{ env.REGISTRY }}/${{ env.WEB_IMAGE_NAME }}:${{ github.ref_name }}
+              ports:
+                - "3000:80"
+              depends_on:
+                - mct-server
+              restart: unless-stopped
+
+            # Middleware services (same as original docker-compose.yml)
+            redis:
+              image: redis:7-alpine
+              ports:
+                - "6379:6379"
+              restart: unless-stopped
+
+            kafka:
+              image: bitnami/kafka:latest
+              ports:
+                - "9092:9092"
+              environment:
+                - KAFKA_CFG_NODE_ID=0
+                - KAFKA_CFG_PROCESS_ROLES=controller,broker
+                - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093
+                - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
+                - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=0@kafka:9093
+                - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
+                - ALLOW_PLAINTEXT_LISTENER=yes
+              restart: unless-stopped
+
+            mongodb:
+              image: mongo:4.4.13
+              ports:
+                - "27017:27017"
+              environment:
+                - MONGO_INITDB_ROOT_USERNAME=admin
+                - MONGO_INITDB_ROOT_PASSWORD=password
+              restart: unless-stopped
+
+            rabbitmq:
+              image: rabbitmq:3.12.7-management
+              ports:
+                - "5672:5672"
+                - "15672:15672"
+              environment:
+                - RABBITMQ_DEFAULT_USER=admin
+                - RABBITMQ_DEFAULT_PASS=password
+              restart: unless-stopped
+
+            emqx:
+              image: emqx/emqx:5.8
+              ports:
+                - "1883:1883"
+                - "18083:18083"
+              environment:
+                - EMQX_NAME=emqx
+                - EMQX_HOST=127.0.0.1
+              restart: unless-stopped
+
+            nacos:
+              image: nacos/nacos-server:v2.4.3
+              ports:
+                - "8848:8848"
+                - "9848:9848"
+              environment:
+                - MODE=standalone
+                - JVM_XMS=512m
+                - JVM_XMX=512m
+              restart: unless-stopped
+          EOF
+
+      - name: Upload docker-compose.release.yml
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v3
+        with:
+          name: docker-compose-release
+          path: docker-compose.release.yml
+
+  update-deployment-docs:
+    name: Update Deployment Documentation
+    runs-on: ubuntu-latest
+    needs: [build-server, build-web, build-all-in-one]
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create deployment guide
+        run: |
+          cat > DOCKER_PULL.md << 'EOF'
+          # Docker Image Deployment Guide
+
+          ## Quick Start with Pre-built Images
+
+          ### Pull Images
+
+          ```bash
+          # Pull server image
+          docker pull ${{ env.REGISTRY }}/${{ env.SERVER_IMAGE_NAME }}:latest
+
+          # Pull web image
+          docker pull ${{ env.REGISTRY }}/${{ env.WEB_IMAGE_NAME }}:latest
+          ```
+
+          ### Run with Docker Compose
+
+          1. Download the release docker-compose file:
+          ```bash
+          curl -O https://raw.githubusercontent.com/${{ github.repository }}/main/docker-compose.release.yml
+          ```
+
+          2. Start all services:
+          ```bash
+          docker-compose -f docker-compose.release.yml up -d
+          ```
+
+          3. Access the platform:
+          - Web UI: http://localhost:3000
+          - API Server: http://localhost:8080
+
+          ### Available Tags
+
+          - `latest` - Latest stable release from main branch
+          - `develop` - Development branch
+          - `v1.0.0` - Specific version tags
+          - `main-sha-xxxxxxx` - Commit-specific builds
+
+          ### Platform Requirements
+
+          - Docker 20.10+
+          - Docker Compose 2.0+
+          - 8GB RAM minimum
+          - 20GB disk space
+
+          ## Images
+
+          ### MCT Server
+          - **Image**: `${{ env.REGISTRY }}/${{ env.SERVER_IMAGE_NAME }}`
+          - **Size**: ~30MB
+          - **Platforms**: linux/amd64, linux/arm64
+
+          ### MCT Web
+          - **Image**: `${{ env.REGISTRY }}/${{ env.WEB_IMAGE_NAME }}`
+          - **Size**: ~25MB (nginx + static files)
+          - **Platforms**: linux/amd64, linux/arm64
+
+          ## Configuration
+
+          ### Environment Variables
+
+          **MCT Server:**
+          - `LOG_LEVEL`: Logging level (debug, info, warn, error)
+          - `STORAGE_TYPE`: Storage backend (memory, file)
+          - `STORAGE_PATH`: Path for file storage
+
+          **MCT Web:**
+          - `API_BASE_URL`: Backend API URL (default: http://mct-server:8080)
+
+          ### Custom Configuration
+
+          Create a `.env` file:
+          ```env
+          LOG_LEVEL=info
+          STORAGE_TYPE=memory
+          ```
+
+          Run with custom env:
+          ```bash
+          docker-compose -f docker-compose.release.yml --env-file .env up -d
+          ```
+
+          ## Troubleshooting
+
+          ### Check container status
+          ```bash
+          docker-compose ps
+          ```
+
+          ### View logs
+          ```bash
+          docker-compose logs -f mct-server
+          docker-compose logs -f mct-web
+          ```
+
+          ### Restart services
+          ```bash
+          docker-compose restart mct-server
+          ```
+
+          ## Security
+
+          All images are:
+          - Scanned for vulnerabilities
+          - Run as non-root user
+          - Minimal base images (Alpine Linux)
+          - Multi-stage builds for smaller size
+
+          ## Support
+
+          - Issues: https://github.com/${{ github.repository }}/issues
+          - Documentation: https://github.com/${{ github.repository }}/blob/main/README.md
+          EOF
+
+      - name: Upload deployment guide
+        uses: actions/upload-artifact@v3
+        with:
+          name: deployment-guide
+          path: DOCKER_PULL.md

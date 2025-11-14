@@ -127,10 +127,10 @@ func DefaultThresholds() *core.Thresholds {
 func KafkaThresholds() *core.Thresholds {
 	return &core.Thresholds{
 		// 可用性标准与默认相同
-		AvailabilityExcellent: 0.9999,  // 99.99%
-		AvailabilityGood:      0.999,   // 99.9%
-		AvailabilityFair:      0.99,    // 99%
-		AvailabilityPass:      0.95,    // 95%
+		AvailabilityExcellent: 0.9999, // 99.99%
+		AvailabilityGood:      0.999,  // 99.9%
+		AvailabilityFair:      0.99,   // 99%
+		AvailabilityPass:      0.95,   // 95%
 
 		// Kafka P95延迟（业界标准）
 		// 优秀：10ms以内（高性能配置：批处理10ms，低延迟网络）
@@ -153,24 +153,244 @@ func KafkaThresholds() *core.Thresholds {
 		P99LatencyPass:      200 * time.Millisecond,
 
 		// 错误率标准（Kafka容错性较高，可接受略高的错误率）
-		ErrorRateExcellent: 0.0001,  // 0.01%
-		ErrorRateGood:      0.001,   // 0.1%
-		ErrorRateFair:      0.01,    // 1%（可能包含消费者组重平衡）
-		ErrorRatePass:      0.05,    // 5%
+		ErrorRateExcellent: 0.0001, // 0.01%
+		ErrorRateGood:      0.001,  // 0.1%
+		ErrorRateFair:      0.01,   // 1%（可能包含消费者组重平衡）
+		ErrorRatePass:      0.05,   // 5%
 
 		// MTTR标准（Kafka有自动恢复机制）
+		MTTRExcellent: 5 * time.Second,  // 快速重连
+		MTTRGood:      15 * time.Second, // 包含重试
+		MTTRFair:      30 * time.Second, // 可能触发重平衡
+		MTTRPass:      60 * time.Second, // 需要手动介入
+	}
+}
+
+// MongoDBThresholds 返回MongoDB专用阈值（符合业界最佳实践）
+// MongoDB作为文档数据库，单文档读写性能优秀，但聚合查询会较慢
+func MongoDBThresholds() *core.Thresholds {
+	return &core.Thresholds{
+		// 可用性标准
+		AvailabilityExcellent: 0.9999, // 99.99%
+		AvailabilityGood:      0.999,  // 99.9%
+		AvailabilityFair:      0.99,   // 99%
+		AvailabilityPass:      0.95,   // 95%
+
+		// MongoDB P95延迟标准（单文档操作）
+		// 优秀：20ms以内（SSD存储，本地网络）
+		// 良好：50ms以内（HDD存储或远程网络）
+		// 尚可：100ms以内（复杂查询或大文档）
+		// 及格：200ms以内（需要优化索引）
+		P95LatencyExcellent: 20 * time.Millisecond,
+		P95LatencyGood:      50 * time.Millisecond,
+		P95LatencyFair:      100 * time.Millisecond,
+		P95LatencyPass:      200 * time.Millisecond,
+
+		// MongoDB P99延迟标准
+		// 优秀：50ms以内
+		// 良好：100ms以内
+		// 尚可：200ms以内
+		// 及格：500ms以内
+		P99LatencyExcellent: 50 * time.Millisecond,
+		P99LatencyGood:      100 * time.Millisecond,
+		P99LatencyFair:      200 * time.Millisecond,
+		P99LatencyPass:      500 * time.Millisecond,
+
+		// 错误率标准
+		ErrorRateExcellent: 0.0001, // 0.01%
+		ErrorRateGood:      0.001,  // 0.1%
+		ErrorRateFair:      0.01,   // 1%
+		ErrorRatePass:      0.05,   // 5%
+
+		// MTTR标准
 		MTTRExcellent: 5 * time.Second,   // 快速重连
-		MTTRGood:      15 * time.Second,  // 包含重试
-		MTTRFair:      30 * time.Second,  // 可能触发重平衡
-		MTTRPass:      60 * time.Second,  // 需要手动介入
+		MTTRGood:      30 * time.Second,  // 包含重试和副本切换
+		MTTRFair:      60 * time.Second,  // 可能需要选举新主节点
+		MTTRPass:      300 * time.Second, // 需要手动介入
+	}
+}
+
+// RocketMQThresholds 返回RocketMQ专用阈值（符合阿里云生产环境最佳实践）
+// RocketMQ作为高性能消息队列，支持99.999%可用性（5个9）和极低延迟
+func RocketMQThresholds() *core.Thresholds {
+	return &core.Thresholds{
+		// 可用性标准（RocketMQ要求更高）
+		AvailabilityExcellent: 0.99999, // 99.999% (5个9，阿里云生产标准)
+		AvailabilityGood:      0.9999,  // 99.99% (4个9)
+		AvailabilityFair:      0.999,   // 99.9%
+		AvailabilityPass:      0.99,    // 99%
+
+		// RocketMQ P95延迟标准（生产环境实测数据）
+		// 优秀：5ms以内（阿里云生产环境标准，SSD+高性能网络）
+		// 良好：20ms以内（标准配置，可能包含网络延迟）
+		// 尚可：50ms以内（包含批处理延迟或网络抖动）
+		// 及格：100ms以内（需要优化）
+		P95LatencyExcellent: 5 * time.Millisecond,
+		P95LatencyGood:      20 * time.Millisecond,
+		P95LatencyFair:      50 * time.Millisecond,
+		P95LatencyPass:      100 * time.Millisecond,
+
+		// RocketMQ P99延迟标准
+		// 优秀：10ms以内（极少数请求受影响）
+		// 良好：50ms以内（可能包含重试或NameServer查询）
+		// 尚可：100ms以内（可能包含队列切换）
+		// 及格：200ms以内（需要调优）
+		P99LatencyExcellent: 10 * time.Millisecond,
+		P99LatencyGood:      50 * time.Millisecond,
+		P99LatencyFair:      100 * time.Millisecond,
+		P99LatencyPass:      200 * time.Millisecond,
+
+		// 错误率标准（RocketMQ自动重试机制）
+		ErrorRateExcellent: 0.00001, // 0.001% (更严格)
+		ErrorRateGood:      0.0001,  // 0.01%
+		ErrorRateFair:      0.001,   // 0.1%
+		ErrorRatePass:      0.01,    // 1%
+
+		// MTTR标准（RocketMQ快速故障转移）
+		MTTRExcellent: 3 * time.Second,  // NameServer自动切换
+		MTTRGood:      10 * time.Second, // 包含重试和队列切换
+		MTTRFair:      30 * time.Second, // 可能需要Broker切换
+		MTTRPass:      60 * time.Second, // 需要人工介入
+	}
+}
+
+// RabbitMQThresholds 返回RabbitMQ专用阈值（符合AMQP协议标准和业界最佳实践）
+// RabbitMQ作为成熟的AMQP消息中间件，支持可靠消息投递和灵活路由
+func RabbitMQThresholds() *core.Thresholds {
+	return &core.Thresholds{
+		// 可用性标准
+		AvailabilityExcellent: 0.9999, // 99.99%
+		AvailabilityGood:      0.999,  // 99.9%
+		AvailabilityFair:      0.99,   // 99%
+		AvailabilityPass:      0.95,   // 95%
+
+		// RabbitMQ P95延迟标准（单消息投递）
+		// 优秀：10ms以内（内存队列，本地网络）
+		// 良好：30ms以内（持久化队列，正常网络）
+		// 尚可：100ms以内（包含复杂路由或确认）
+		// 及格：200ms以内（需要优化）
+		P95LatencyExcellent: 10 * time.Millisecond,
+		P95LatencyGood:      30 * time.Millisecond,
+		P95LatencyFair:      100 * time.Millisecond,
+		P95LatencyPass:      200 * time.Millisecond,
+
+		// RabbitMQ P99延迟标准
+		// 优秀：20ms以内（偶尔的持久化延迟）
+		// 良好：50ms以内（可能包含死信队列处理）
+		// 尚可：150ms以内（可能包含重试或确认超时）
+		// 及格：300ms以内（需要调优）
+		P99LatencyExcellent: 20 * time.Millisecond,
+		P99LatencyGood:      50 * time.Millisecond,
+		P99LatencyFair:      150 * time.Millisecond,
+		P99LatencyPass:      300 * time.Millisecond,
+
+		// 错误率标准（考虑到消息确认机制）
+		ErrorRateExcellent: 0.0001, // 0.01%
+		ErrorRateGood:      0.001,  // 0.1%
+		ErrorRateFair:      0.01,   // 1%
+		ErrorRatePass:      0.05,   // 5%
+
+		// MTTR标准（RabbitMQ镜像队列自动切换）
+		MTTRExcellent: 5 * time.Second,  // 快速重连和通道重建
+		MTTRGood:      15 * time.Second, // 包含镜像队列切换
+		MTTRFair:      30 * time.Second, // 可能需要重新声明资源
+		MTTRPass:      60 * time.Second, // 需要手动介入
+	}
+}
+
+// EMQXThresholds 返回EMQX专用阈值（符合MQTT协议和物联网场景最佳实践）
+// EMQX作为高性能MQTT消息中间件，支持海量设备连接和低延迟消息传输
+func EMQXThresholds() *core.Thresholds {
+	return &core.Thresholds{
+		// 可用性标准（物联网场景）
+		AvailabilityExcellent: 0.9999, // 99.99%
+		AvailabilityGood:      0.999,  // 99.9%
+		AvailabilityFair:      0.99,   // 99%
+		AvailabilityPass:      0.95,   // 95%
+
+		// MQTT/EMQX P95延迟标准（物联网场景）
+		// 优秀：50ms以内（物联网场景可接受，考虑弱网络环境）
+		// 良好：100ms以内（包含移动网络延迟）
+		// 尚可：200ms以内（包含QoS 2四次握手）
+		// 及格：500ms以内（需要优化）
+		P95LatencyExcellent: 50 * time.Millisecond,
+		P95LatencyGood:      100 * time.Millisecond,
+		P95LatencyFair:      200 * time.Millisecond,
+		P95LatencyPass:      500 * time.Millisecond,
+
+		// MQTT/EMQX P99延迟标准
+		// 优秀：100ms以内
+		// 良好：200ms以内
+		// 尚可：500ms以内
+		// 及格：1s以内
+		P99LatencyExcellent: 100 * time.Millisecond,
+		P99LatencyGood:      200 * time.Millisecond,
+		P99LatencyFair:      500 * time.Millisecond,
+		P99LatencyPass:      1 * time.Second,
+
+		// 错误率标准（物联网弱网络环境）
+		ErrorRateExcellent: 0.001, // 0.1%
+		ErrorRateGood:      0.01,  // 1%
+		ErrorRateFair:      0.05,  // 5%
+		ErrorRatePass:      0.1,   // 10%（考虑到移动网络不稳定）
+
+		// MTTR标准（MQTT自动重连）
+		MTTRExcellent: 5 * time.Second,  // 快速重连
+		MTTRGood:      15 * time.Second, // 包含指数退避
+		MTTRFair:      30 * time.Second, // 可能需要重新订阅
+		MTTRPass:      60 * time.Second, // 需要手动介入
+	}
+}
+
+// NacosThresholds 返回Nacos专用阈值（符合服务注册中心和配置中心最佳实践）
+// Nacos作为关键的基础设施组件，要求极高的可用性和快速的服务发现能力
+func NacosThresholds() *core.Thresholds {
+	return &core.Thresholds{
+		// 可用性标准（注册中心关键性高）
+		AvailabilityExcellent: 0.99999, // 99.999% (5个9，注册中心关键)
+		AvailabilityGood:      0.9999,  // 99.99% (4个9)
+		AvailabilityFair:      0.999,   // 99.9%
+		AvailabilityPass:      0.99,    // 99%
+
+		// Nacos P95延迟标准（服务注册/发现操作）
+		// 优秀：10ms以内（本地网络，快速响应）
+		// 良好：50ms以内（跨区域或包含gRPC通信）
+		// 尚可：100ms以内（网络延迟或负载较高）
+		// 及格：200ms以内（需要优化）
+		P95LatencyExcellent: 10 * time.Millisecond,
+		P95LatencyGood:      50 * time.Millisecond,
+		P95LatencyFair:      100 * time.Millisecond,
+		P95LatencyPass:      200 * time.Millisecond,
+
+		// Nacos P99延迟标准
+		// 优秀：20ms以内（极少数请求受影响）
+		// 良好：100ms以内（可能包含配置下发）
+		// 尚可：200ms以内（可能包含集群同步）
+		// 及格：500ms以内（需要调优）
+		P99LatencyExcellent: 20 * time.Millisecond,
+		P99LatencyGood:      100 * time.Millisecond,
+		P99LatencyFair:      200 * time.Millisecond,
+		P99LatencyPass:      500 * time.Millisecond,
+
+		// 错误率标准（注册中心要求更严格）
+		ErrorRateExcellent: 0.00001, // 0.001% (极低错误率)
+		ErrorRateGood:      0.0001,  // 0.01%
+		ErrorRateFair:      0.001,   // 0.1%
+		ErrorRatePass:      0.01,    // 1%
+
+		// MTTR标准（Nacos集群自动切换）
+		MTTRExcellent: 3 * time.Second,  // 快速重连和节点切换
+		MTTRGood:      10 * time.Second, // 包含重试和服务列表更新
+		MTTRFair:      30 * time.Second, // 可能需要集群恢复
+		MTTRPass:      60 * time.Second, // 需要人工介入
 	}
 }
 
 // Evaluate 评估稳定性指标
 func (se *StabilityEvaluator) Evaluate(metrics *core.StabilityMetrics) *core.EvaluationResult {
 	result := &core.EvaluationResult{
-		EvaluatedAt: time.Now(),
-		Issues:      make([]core.Issue, 0),
+		EvaluatedAt:     time.Now(),
+		Issues:          make([]core.Issue, 0),
 		Recommendations: make([]core.Recommendation, 0),
 	}
 
@@ -627,6 +847,36 @@ func (se *StabilityEvaluator) EvaluateKafka(metrics *core.StabilityMetrics) *cor
 	}
 
 	return result
+}
+
+// EvaluateMongoDB MongoDB特定评估
+func (se *StabilityEvaluator) EvaluateMongoDB(metrics *core.StabilityMetrics) *core.EvaluationResult {
+	// MongoDB使用通用评估逻辑
+	return se.Evaluate(metrics)
+}
+
+// EvaluateRocketMQ RocketMQ特定评估
+func (se *StabilityEvaluator) EvaluateRocketMQ(metrics *core.StabilityMetrics) *core.EvaluationResult {
+	// RocketMQ使用通用评估逻辑
+	return se.Evaluate(metrics)
+}
+
+// EvaluateRabbitMQ RabbitMQ特定评估
+func (se *StabilityEvaluator) EvaluateRabbitMQ(metrics *core.StabilityMetrics) *core.EvaluationResult {
+	// RabbitMQ使用通用评估逻辑
+	return se.Evaluate(metrics)
+}
+
+// EvaluateEMQX EMQX特定评估
+func (se *StabilityEvaluator) EvaluateEMQX(metrics *core.StabilityMetrics) *core.EvaluationResult {
+	// EMQX使用通用评估逻辑
+	return se.Evaluate(metrics)
+}
+
+// EvaluateNacos Nacos特定评估
+func (se *StabilityEvaluator) EvaluateNacos(metrics *core.StabilityMetrics) *core.EvaluationResult {
+	// Nacos使用通用评估逻辑
+	return se.Evaluate(metrics)
 }
 
 // SetThresholds 设置自定义阈值
