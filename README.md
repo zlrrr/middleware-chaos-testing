@@ -14,17 +14,19 @@ MCT is an extensible middleware chaos testing framework that simulates various u
 ### Core Features
 
 - ✅ **Multi-Middleware Support**: Redis, Kafka, MongoDB, RocketMQ, RabbitMQ, EMQX, Nacos
+- ✅ **Web Platform**: Modern React UI + RESTful API server for easy management
 - ✅ **Configurable Test Duration**: Command-line and configuration file support
 - ✅ **Intelligent Scoring System**: 0-100 points with 5 grade levels
 - ✅ **Clear Test Results**: Pass/Warning/Fail status with actionable insights
 - ✅ **Prioritized Recommendations**: Improvement suggestions ranked by priority
 - ✅ **Production-Grade Metrics**: Industry-standard stability indicators
-- ✅ **Containerized Deployment**: One-command Docker setup
+- ✅ **Containerized Deployment**: One-command Docker setup with all services
 - ✅ **TDD Methodology**: Test-Driven Development workflow
 
 ## Table of Contents
 
 - [Quick Start](#quick-start)
+- [Web Platform](#web-platform)
 - [Compilation & Build](#compilation--build)
 - [Running Tests](#running-tests)
   - [Redis Testing](#redis-testing)
@@ -61,6 +63,77 @@ go mod download
 
 # Build the project
 go build -o bin/mct ./cmd/mct
+```
+
+---
+
+## Web Platform
+
+MCT Platform provides a complete web-based solution for managing chaos testing tasks through a modern UI and RESTful API.
+
+### Start the Platform
+
+```bash
+# Start all services (frontend, backend, and 7 middlewares)
+./scripts/start-platform.sh
+
+# Or use docker-compose directly
+docker-compose up -d
+```
+
+### Access the Platform
+
+- **Web UI**: http://localhost:3000
+- **API Server**: http://localhost:8080
+- **API Documentation**: http://localhost:8080/api/v1/middlewares
+
+### Features
+
+**Web UI (React)**:
+- Dashboard with task statistics and middleware coverage
+- Task management (create, run, view, delete)
+- Interactive test result visualization
+- Real-time task status updates
+- Five-dimensional score cards
+- Detailed metrics and recommendations
+
+**API Server (Go)**:
+- RESTful API for task management
+- Support for all 7 middleware types
+- Task execution and result retrieval
+- Health checks and monitoring
+- CORS-enabled for frontend integration
+
+**Middleware Services**:
+- Redis (6379) - In-memory data store
+- Kafka (9092) - Message streaming
+- MongoDB (27017) - Document database
+- RabbitMQ (5672, 15672) - Message broker
+- EMQX (1883, 18083) - MQTT broker
+- Nacos (8848, 9848) - Service discovery
+- Elasticsearch (9200) - Search engine
+
+### Quick Usage
+
+1. Open http://localhost:3000 in your browser
+2. Click "Create Task" to create a new test
+3. Select middleware type and configure connection
+4. Click "Run" to execute the chaos test
+5. View detailed results with scores and recommendations
+
+### Documentation
+
+- **Platform Guide**: [docs/platform-guide.md](docs/platform-guide.md)
+- **API Reference**: [docs/API.md](docs/API.md)
+- **Deployment Guide**: [DOCKER_DEPLOYMENT.md](DOCKER_DEPLOYMENT.md)
+
+### Stop the Platform
+
+```bash
+./scripts/stop-platform.sh
+
+# Or use docker-compose directly
+docker-compose down
 ```
 
 ---
@@ -696,7 +769,8 @@ go fmt ./... && golangci-lint run && go test ./tests/unit/... -cover
 ```
 middleware-chaos-testing/
 ├── cmd/
-│   └── mct/                  # Main program entry
+│   ├── mct/                  # Main CLI program
+│   └── mct-server/           # Web API server
 ├── internal/
 │   ├── core/                 # Core abstractions
 │   ├── middleware/           # Middleware adapters (7 clients)
@@ -712,17 +786,38 @@ middleware-chaos-testing/
 │   ├── evaluator/            # Stability evaluator
 │   ├── reporter/             # Report generator
 │   ├── orchestrator/         # Test orchestrator
-│   └── config/               # Configuration manager
+│   ├── config/               # Configuration manager
+│   ├── types/                # Shared type definitions
+│   ├── storage/              # Task and result storage
+│   ├── executor/             # Task execution engine
+│   ├── service/              # Business logic layer
+│   └── api/                  # HTTP API handlers and middleware
+│       ├── handlers/         # API request handlers
+│       └── middleware/       # HTTP middleware (CORS, logging, recovery)
+├── web/                      # React frontend
+│   ├── src/
+│   │   ├── components/       # React components
+│   │   ├── pages/            # Page components
+│   │   ├── services/         # API client
+│   │   ├── stores/           # State management (Zustand)
+│   │   └── types/            # TypeScript definitions
+│   ├── Dockerfile            # Frontend container image
+│   └── nginx.conf            # Nginx configuration
 ├── tests/
 │   ├── unit/                 # Unit tests (15+ per middleware)
-│   ├── integration/          # Integration tests
-│   └── e2e/                  # End-to-end tests
+│   ├── integration/          # Integration tests (API)
+│   └── e2e/                  # End-to-end platform tests
 ├── docs/                     # Documentation
+│   ├── platform-guide.md     # Platform user guide
+│   └── API.md                # API reference
 ├── configs/                  # Configuration examples
 ├── scripts/                  # Build & deployment scripts
+│   ├── start-platform.sh     # Platform startup script
+│   └── stop-platform.sh      # Platform shutdown script
 ├── Makefile                  # Build automation
-├── Dockerfile                # Container image
-└── docker-compose.yml        # Multi-service orchestration
+├── Dockerfile.server         # Backend container image
+├── docker-compose.yml        # Multi-service orchestration
+└── DOCKER_DEPLOYMENT.md      # Docker deployment guide
 ```
 
 ---
@@ -743,6 +838,12 @@ middleware-chaos-testing/
 
 ## Documentation
 
+**Platform Documentation**:
+- [Platform User Guide](docs/platform-guide.md)
+- [API Reference](docs/API.md)
+- [Docker Deployment Guide](DOCKER_DEPLOYMENT.md)
+
+**Architecture Documentation**:
 - [Architecture Design](docs/phase-0/architecture.md)
 - [Interface Specification](docs/phase-0/interface-spec.md)
 - [Metrics Definition](docs/phase-0/metrics-definition.md)
@@ -766,6 +867,11 @@ middleware-chaos-testing/
 - [x] Phase 8: RabbitMQ client support
 - [x] Phase 9: EMQX client support
 - [x] Phase 10: Nacos client support
+- [x] Phase 11: Web Service Platform
+  - [x] Phase 11.1: Backend API server
+  - [x] Phase 11.2: React frontend UI
+  - [x] Phase 11.3: Docker containerization
+  - [x] Phase 11.4: Integration testing and documentation
 
 See [PLAN.md](PLAN.md) for detailed roadmap.
 
