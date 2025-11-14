@@ -1,0 +1,510 @@
+name: Build and Release Binaries
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g., v1.0.0)'
+        required: true
+        default: 'v0.1.0'
+
+jobs:
+  build-binaries:
+    name: Build MCT Binaries
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          # Linux builds
+          - os: ubuntu-latest
+            goos: linux
+            goarch: amd64
+            output: mct-linux-amd64
+          - os: ubuntu-latest
+            goos: linux
+            goarch: arm64
+            output: mct-linux-arm64
+
+          # macOS builds
+          - os: macos-latest
+            goos: darwin
+            goarch: amd64
+            output: mct-darwin-amd64
+          - os: macos-latest
+            goos: darwin
+            goarch: arm64
+            output: mct-darwin-arm64
+
+          # Windows builds
+          - os: ubuntu-latest
+            goos: windows
+            goarch: amd64
+            output: mct-windows-amd64.exe
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache: true
+
+      - name: Get dependencies
+        run: |
+          go mod download
+          go mod verify
+
+      - name: Get version
+        id: get_version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: |
+          VERSION=${{ steps.get_version.outputs.VERSION }}
+          BUILD_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          COMMIT_SHA=${GITHUB_SHA:0:7}
+
+          go build -v \
+            -ldflags="-s -w -X main.version=${VERSION} -X main.buildTime=${BUILD_TIME} -X main.commitSHA=${COMMIT_SHA}" \
+            -o bin/${{ matrix.output }} \
+            ./cmd/mct
+
+      - name: Test binary
+        if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
+        run: |
+          chmod +x bin/${{ matrix.output }}
+          bin/${{ matrix.output }} version
+
+      - name: Create tarball (Unix)
+        if: matrix.goos != 'windows'
+        run: |
+          cd bin
+          tar -czf ${{ matrix.output }}.tar.gz ${{ matrix.output }}
+          sha256sum ${{ matrix.output }}.tar.gz > ${{ matrix.output }}.tar.gz.sha256
+
+      - name: Create zip (Windows)
+        if: matrix.goos == 'windows'
+        run: |
+          cd bin
+          zip ${{ matrix.output }}.zip ${{ matrix.output }}
+          sha256sum ${{ matrix.output }}.zip > ${{ matrix.output }}.zip.sha256
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ matrix.output }}
+          path: |
+            bin/${{ matrix.output }}*
+          retention-days: 7
+
+  build-mct-server:
+    name: Build MCT Server Binaries
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            goos: linux
+            goarch: amd64
+            output: mct-server-linux-amd64
+          - os: ubuntu-latest
+            goos: linux
+            goarch: arm64
+            output: mct-server-linux-arm64
+          - os: macos-latest
+            goos: darwin
+            goarch: amd64
+            output: mct-server-darwin-amd64
+          - os: macos-latest
+            goos: darwin
+            goarch: arm64
+            output: mct-server-darwin-arm64
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache: true
+
+      - name: Get dependencies
+        run: |
+          go mod download
+          go mod verify
+
+      - name: Get version
+        id: get_version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build mct-server binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: |
+          VERSION=${{ steps.get_version.outputs.VERSION }}
+          BUILD_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          COMMIT_SHA=${GITHUB_SHA:0:7}
+
+          go build -v \
+            -ldflags="-s -w -X main.version=${VERSION} -X main.buildTime=${BUILD_TIME} -X main.commitSHA=${COMMIT_SHA}" \
+            -o bin/${{ matrix.output }} \
+            ./cmd/mct-server
+
+      - name: Create tarball
+        run: |
+          cd bin
+          tar -czf ${{ matrix.output }}.tar.gz ${{ matrix.output }}
+          sha256sum ${{ matrix.output }}.tar.gz > ${{ matrix.output }}.tar.gz.sha256
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ matrix.output }}
+          path: |
+            bin/${{ matrix.output }}*
+          retention-days: 7
+
+  create-release:
+    name: Create Release
+    needs: [build-binaries, build-mct-server]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v3
+        with:
+          path: artifacts
+
+      - name: Get version
+        id: get_version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Generate release notes
+        id: release_notes
+        run: |
+          cat > release_notes.md << 'EOF'
+          ## 🎉 MCT Release ${{ steps.get_version.outputs.VERSION }}
+
+          ### 📦 Binary Downloads
+
+          **MCT CLI Tool:**
+          - Linux (amd64): `mct-linux-amd64.tar.gz`
+          - Linux (arm64): `mct-linux-arm64.tar.gz`
+          - macOS (Intel): `mct-darwin-amd64.tar.gz`
+          - macOS (Apple Silicon): `mct-darwin-arm64.tar.gz`
+          - Windows: `mct-windows-amd64.exe.zip`
+
+          **MCT Server:**
+          - Linux (amd64): `mct-server-linux-amd64.tar.gz`
+          - Linux (arm64): `mct-server-linux-arm64.tar.gz`
+          - macOS (Intel): `mct-server-darwin-amd64.tar.gz`
+          - macOS (Apple Silicon): `mct-server-darwin-arm64.tar.gz`
+
+          ### 🚀 Quick Start
+
+          #### CLI Tool
+          ```bash
+          # Download and extract (example for Linux amd64)
+          wget https://github.com/${{ github.repository }}/releases/download/${{ steps.get_version.outputs.VERSION }}/mct-linux-amd64.tar.gz
+          tar -xzf mct-linux-amd64.tar.gz
+          chmod +x mct-linux-amd64
+
+          # Run test
+          ./mct-linux-amd64 test --middleware redis --host localhost --duration 30s
+          ```
+
+          #### Docker Images
+          ```bash
+          # Pull pre-built images
+          docker pull ghcr.io/${{ github.repository }}/mct-server:${{ steps.get_version.outputs.VERSION }}
+          docker pull ghcr.io/${{ github.repository }}/mct-web:${{ steps.get_version.outputs.VERSION }}
+
+          # Or use docker-compose
+          docker-compose -f docker-compose.release.yml up -d
+          ```
+
+          ### ✨ Features
+
+          - ✅ Support for 7 middleware types (Redis, Kafka, MongoDB, RocketMQ, RabbitMQ, EMQX, Nacos)
+          - ✅ CLI tool for direct testing
+          - ✅ Web platform with React UI
+          - ✅ RESTful API server
+          - ✅ Intelligent scoring system (0-100 points)
+          - ✅ Five-dimensional evaluation
+          - ✅ Detailed recommendations
+          - ✅ Docker deployment support
+
+          ### 📝 Verification
+
+          Verify checksums:
+          ```bash
+          sha256sum -c mct-linux-amd64.tar.gz.sha256
+          ```
+
+          ### 📚 Documentation
+
+          - [User Guide](https://github.com/${{ github.repository }}/blob/main/docs/platform-guide.md)
+          - [API Reference](https://github.com/${{ github.repository }}/blob/main/docs/API.md)
+          - [Deployment Guide](https://github.com/${{ github.repository }}/blob/main/DOCKER_DEPLOYMENT.md)
+
+          ### 🐛 Bug Reports
+
+          Found a bug? Please [open an issue](https://github.com/${{ github.repository }}/issues/new).
+          EOF
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release-assets
+
+          # Copy all built binaries and their checksums
+          find artifacts -name "*.tar.gz" -exec cp {} release-assets/ \;
+          find artifacts -name "*.zip" -exec cp {} release-assets/ \;
+          find artifacts -name "*.sha256" -exec cp {} release-assets/ \;
+
+          # List all files
+          ls -lh release-assets/
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.get_version.outputs.VERSION }}
+          name: Release ${{ steps.get_version.outputs.VERSION }}
+          body_path: release_notes.md
+          draft: false
+          prerelease: false
+          files: |
+            release-assets/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-install-script:
+    name: Publish Install Script
+    needs: create-release
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create install script
+        run: |
+          cat > install.sh << 'EOFSCRIPT'
+          #!/bin/bash
+          # MCT Installation Script
+
+          set -e
+
+          # Detect OS and architecture
+          OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+          ARCH=$(uname -m)
+
+          case "$ARCH" in
+            x86_64) ARCH="amd64" ;;
+            aarch64|arm64) ARCH="arm64" ;;
+            *) echo "Unsupported architecture: $ARCH"; exit 1 ;;
+          esac
+
+          case "$OS" in
+            linux|darwin) ;;
+            mingw*|msys*|cygwin*) OS="windows"; ARCH="amd64" ;;
+            *) echo "Unsupported OS: $OS"; exit 1 ;;
+          esac
+
+          # Get latest version
+          LATEST_VERSION=$(curl -s https://api.github.com/repos/${{ github.repository }}/releases/latest | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')
+
+          if [ -z "$LATEST_VERSION" ]; then
+            echo "Failed to get latest version"
+            exit 1
+          fi
+
+          echo "Installing MCT ${LATEST_VERSION} for ${OS}-${ARCH}..."
+
+          # Download URL
+          if [ "$OS" = "windows" ]; then
+            FILENAME="mct-${OS}-${ARCH}.exe.zip"
+            DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/${LATEST_VERSION}/${FILENAME}"
+          else
+            FILENAME="mct-${OS}-${ARCH}.tar.gz"
+            DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/${LATEST_VERSION}/${FILENAME}"
+          fi
+
+          # Download
+          echo "Downloading from ${DOWNLOAD_URL}..."
+          curl -L -o "/tmp/${FILENAME}" "${DOWNLOAD_URL}"
+
+          # Extract
+          if [ "$OS" = "windows" ]; then
+            unzip -o "/tmp/${FILENAME}" -d /tmp/
+            BINARY_NAME="mct-${OS}-${ARCH}.exe"
+          else
+            tar -xzf "/tmp/${FILENAME}" -C /tmp/
+            BINARY_NAME="mct-${OS}-${ARCH}"
+          fi
+
+          # Install
+          INSTALL_DIR="${HOME}/.local/bin"
+          mkdir -p "${INSTALL_DIR}"
+
+          if [ "$OS" = "windows" ]; then
+            mv "/tmp/${BINARY_NAME}" "${INSTALL_DIR}/mct.exe"
+            chmod +x "${INSTALL_DIR}/mct.exe"
+            echo "MCT installed to ${INSTALL_DIR}/mct.exe"
+          else
+            mv "/tmp/${BINARY_NAME}" "${INSTALL_DIR}/mct"
+            chmod +x "${INSTALL_DIR}/mct"
+            echo "MCT installed to ${INSTALL_DIR}/mct"
+          fi
+
+          # Check if directory is in PATH
+          if [[ ":$PATH:" != *":${INSTALL_DIR}:"* ]]; then
+            echo ""
+            echo "⚠️  ${INSTALL_DIR} is not in your PATH"
+            echo "Add this line to your ~/.bashrc or ~/.zshrc:"
+            echo "export PATH=\"\$PATH:${INSTALL_DIR}\""
+          fi
+
+          # Verify installation
+          if [ "$OS" = "windows" ]; then
+            "${INSTALL_DIR}/mct.exe" version
+          else
+            "${INSTALL_DIR}/mct" version
+          fi
+
+          echo "✅ Installation complete!"
+          EOFSCRIPT
+
+          chmod +x install.sh
+
+      - name: Upload install script as artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: install-script
+          path: install.sh
+
+      - name: Update README with install instructions
+        run: |
+          cat > INSTALL.md << 'EOF'
+          # MCT Installation Guide
+
+          ## Quick Install (Recommended)
+
+          ### One-line install script:
+          ```bash
+          curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install.sh | bash
+          ```
+
+          ### Manual Installation
+
+          1. Download the appropriate binary for your platform from the [releases page](https://github.com/${{ github.repository }}/releases)
+
+          2. Extract and install:
+          ```bash
+          # Linux/macOS
+          tar -xzf mct-*.tar.gz
+          sudo mv mct-* /usr/local/bin/mct
+          chmod +x /usr/local/bin/mct
+
+          # Windows
+          # Extract the zip file and add to PATH
+          ```
+
+          3. Verify installation:
+          ```bash
+          mct version
+          ```
+
+          ## Docker Installation
+
+          Pull pre-built images:
+          ```bash
+          docker pull ghcr.io/${{ github.repository }}/mct-server:latest
+          docker pull ghcr.io/${{ github.repository }}/mct-web:latest
+          ```
+
+          Run with docker-compose:
+          ```bash
+          curl -O https://raw.githubusercontent.com/${{ github.repository }}/main/docker-compose.release.yml
+          docker-compose -f docker-compose.release.yml up -d
+          ```
+
+          ## Platform-Specific Notes
+
+          ### macOS
+          If you get a security warning, run:
+          ```bash
+          xattr -d com.apple.quarantine /usr/local/bin/mct
+          ```
+
+          ### Linux ARM64
+          Make sure you download the `arm64` variant for ARM-based systems.
+
+          ### Windows
+          Add the binary location to your system PATH for easy access.
+
+          ## Verification
+
+          After installation, verify the checksum:
+          ```bash
+          sha256sum -c mct-*.sha256
+          ```
+
+          ## Updating
+
+          To update to the latest version, simply run the install script again or download the new release.
+
+          ## Uninstall
+
+          ```bash
+          # Remove binary
+          sudo rm /usr/local/bin/mct
+
+          # Or from ~/.local/bin
+          rm ~/.local/bin/mct
+          ```
+          EOF
+
+      - name: Commit and push install files
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add install.sh INSTALL.md || true
+          git commit -m "Add installation script and guide [skip ci]" || true
+          git push || true

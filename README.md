@@ -4,8 +4,10 @@ A comprehensive chaos testing framework for middleware stability validation acro
 
 [![Go Version](https://img.shields.io/badge/go-1.23+-blue.svg)](https://golang.org/dl/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Build Binaries](https://github.com/zlrrr/middleware-chaos-testing/actions/workflows/release-binaries.yml/badge.svg)](https://github.com/zlrrr/middleware-chaos-testing/actions/workflows/release-binaries.yml)
+[![Build Docker Images](https://github.com/zlrrr/middleware-chaos-testing/actions/workflows/docker-images.yml/badge.svg)](https://github.com/zlrrr/middleware-chaos-testing/actions/workflows/docker-images.yml)
 
-**[中文文档](README_CN.md)**
+**[中文文档](README_CN.md)** | **[Installation Guide](INSTALL.md)**
 
 ## Overview
 
@@ -45,25 +47,86 @@ MCT is an extensible middleware chaos testing framework that simulates various u
 
 ## Quick Start
 
-### Prerequisites
+### Installation Options
 
+MCT can be installed in multiple ways depending on your needs:
+
+#### Option 1: Pre-built Binary (Recommended)
+
+Download the latest release for your platform:
+
+```bash
+# One-line install (Linux/macOS)
+curl -fsSL https://raw.githubusercontent.com/zlrrr/middleware-chaos-testing/main/install.sh | bash
+
+# Verify installation
+mct version
+```
+
+**Manual download:**
+- Visit the [Releases page](https://github.com/zlrrr/middleware-chaos-testing/releases)
+- Download the appropriate binary for your OS and architecture
+- Extract and move to your PATH
+
+#### Option 2: Docker Images (For Web Platform)
+
+Use pre-built Docker images for the complete platform:
+
+```bash
+# Pull images
+docker pull ghcr.io/zlrrr/middleware-chaos-testing/mct-server:latest
+docker pull ghcr.io/zlrrr/middleware-chaos-testing/mct-web:latest
+
+# Download and run with docker-compose
+curl -O https://raw.githubusercontent.com/zlrrr/middleware-chaos-testing/main/docker-compose.release.yml
+docker-compose -f docker-compose.release.yml up -d
+```
+
+Access the platform at:
+- **Web UI**: http://localhost:3000
+- **API Server**: http://localhost:8080
+
+#### Option 3: Build from Source
+
+Requirements:
 - **Go**: 1.23 or higher
-- **Docker**: 20.10+ (for running middleware containers)
-- **Docker Compose**: 2.0+ (optional, for multi-service setup)
-
-### Installation
+- **Node.js**: 18+ (for web UI)
+- **Docker**: 20.10+ (for middleware containers)
+- **Docker Compose**: 2.0+
 
 ```bash
 # Clone the repository
-git clone https://github.com/username/middleware-chaos-testing.git
+git clone https://github.com/zlrrr/middleware-chaos-testing.git
 cd middleware-chaos-testing
 
-# Download dependencies
-go mod download
-
-# Build the project
+# Build CLI tool
 go build -o bin/mct ./cmd/mct
+
+# Build API server
+go build -o bin/mct-server ./cmd/mct-server
+
+# Build web UI
+cd web
+npm install
+npm run build
+cd ..
+
+# Or use the startup script to build and run everything
+./scripts/start-platform.sh
 ```
+
+### Prerequisites
+
+**For Docker deployment:**
+- Docker 20.10+
+- Docker Compose 2.0+
+- 8GB RAM minimum (16GB recommended)
+- 20GB disk space
+
+**For source build:**
+- Go 1.23+
+- Node.js 18+
+- Git
 
 ---
 
@@ -113,13 +176,304 @@ docker-compose up -d
 - Nacos (8848, 9848) - Service discovery
 - Elasticsearch (9200) - Search engine
 
-### Quick Usage
+### Quick Start Guide
 
-1. Open http://localhost:3000 in your browser
-2. Click "Create Task" to create a new test
-3. Select middleware type and configure connection
-4. Click "Run" to execute the chaos test
-5. View detailed results with scores and recommendations
+#### Step 1: Start the Platform
+
+```bash
+# Clone repository (if not already done)
+git clone https://github.com/zlrrr/middleware-chaos-testing.git
+cd middleware-chaos-testing
+
+# Start all services
+./scripts/start-platform.sh
+```
+
+Wait for all services to become healthy. The script will display:
+```
+✅ All services are healthy!
+
+Access URLs:
+- Web UI: http://localhost:3000
+- API Server: http://localhost:8080
+- API Health: http://localhost:8080/health
+
+Middleware Services:
+- Redis: localhost:6379
+- Kafka: localhost:9092
+- MongoDB: localhost:27017
+- RabbitMQ: localhost:5672 (Management: http://localhost:15672)
+- EMQX: localhost:1883 (Dashboard: http://localhost:18083)
+- Nacos: localhost:8848 (Console: http://localhost:8848/nacos)
+```
+
+#### Step 2: Access the Web UI
+
+Open your browser and navigate to **http://localhost:3000**
+
+You'll see the MCT Dashboard with:
+- **Task Statistics**: Total, running, completed, failed tasks
+- **Middleware Coverage**: Which middleware types have been tested
+- **Recent Activity**: Latest test results
+
+#### Step 3: Create a Test Task
+
+**Via Web UI:**
+
+1. Click the **"Create Task"** button in the top right
+2. Fill in the task details:
+
+   **For Redis:**
+   ```
+   Middleware: Redis
+   Host: redis
+   Port: 6379
+   Password: (leave empty)
+   DB: 0
+   ```
+
+   **For Kafka:**
+   ```
+   Middleware: Kafka
+   Brokers: kafka:9092
+   Topic: test-topic
+   ```
+
+   **For MongoDB:**
+   ```
+   Middleware: MongoDB
+   URI: mongodb://admin:password@mongodb:27017
+   Database: testdb
+   Collection: testcol
+   ```
+
+3. Click **"Create"** to save the task
+
+**Via API:**
+
+```bash
+# Create a Redis test task
+curl -X POST http://localhost:8080/api/v1/tasks \
+  -H "Content-Type: application/json" \
+  -d '{
+    "middleware": "redis",
+    "config": {
+      "host": "redis",
+      "port": 6379,
+      "db": 0
+    }
+  }'
+```
+
+#### Step 4: Run the Test
+
+**Via Web UI:**
+
+1. Navigate to the **Tasks** page
+2. Find your task in the list
+3. Click the **"Run" (▶️)** button
+4. Watch the status change from "pending" → "running" → "completed"
+
+**Via API:**
+
+```bash
+# Run the task (replace with your task ID)
+curl -X POST http://localhost:8080/api/v1/tasks/{task-id}/run
+
+# Check status
+curl http://localhost:8080/api/v1/tasks/{task-id}
+```
+
+#### Step 5: View Test Results
+
+**Via Web UI:**
+
+1. Click **"View Results" (👁️)** button next to the completed task
+2. You'll see:
+   - **Overall Score** (0-100) and Grade (A/B/C/D/F)
+   - **Five Dimensions**: Availability, Performance, Resilience, Data Integrity, Recovery
+   - **Key Metrics**: Operations, latency, error rate
+   - **Issues Found**: Categorized by severity (Critical/High/Medium/Low)
+   - **Recommendations**: Prioritized improvement suggestions
+
+**Via API:**
+
+```bash
+# Get test result
+curl http://localhost:8080/api/v1/tasks/{task-id}/result | jq
+
+# Output example:
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "task_id": "task-123",
+    "score": 87.5,
+    "grade": "B",
+    "dimensions": {
+      "availability": 92.0,
+      "performance": 85.0,
+      "resilience": 88.0,
+      "data_integrity": 95.0,
+      "recovery": 77.5
+    },
+    ...
+  }
+}
+```
+
+### Understanding Test Results
+
+**Score Interpretation:**
+
+| Score | Grade | Status | Meaning |
+|-------|-------|--------|---------|
+| 90-100 | A | ✅ PASS | Excellent - Production ready |
+| 80-89 | B | ✅ PASS | Good - Meets production standards |
+| 70-79 | C | ⚠️ WARNING | Fair - Optimization recommended |
+| 60-69 | D | ⚠️ WARNING | Poor - Improvements needed |
+| 0-59 | F | ❌ FAIL | Failed - Not production ready |
+
+**Five Dimensions:**
+
+1. **Availability** (0-100): Uptime and success rate during chaos
+2. **Performance** (0-100): Response time and throughput
+3. **Resilience** (0-100): Ability to handle failures
+4. **Data Integrity** (0-100): Data consistency and correctness
+5. **Recovery** (0-100): Time to recover from failures
+
+### Common Use Cases
+
+#### Use Case 1: Pre-Production Validation
+
+Test middleware before deploying to production:
+
+```bash
+# Test Redis cluster
+curl -X POST http://localhost:8080/api/v1/tasks \
+  -H "Content-Type: application/json" \
+  -d '{
+    "middleware": "redis",
+    "config": {"host": "redis", "port": 6379}
+  }'
+
+# If score >= 80: Safe to deploy ✅
+# If score < 80: Review recommendations ⚠️
+```
+
+#### Use Case 2: Continuous Monitoring
+
+Run periodic tests to track stability trends:
+
+```bash
+# Automated daily test
+#!/bin/bash
+for middleware in redis kafka mongodb; do
+  TASK_ID=$(curl -s -X POST http://localhost:8080/api/v1/tasks \
+    -H "Content-Type: application/json" \
+    -d "{\"middleware\":\"$middleware\",\"config\":{}}" \
+    | jq -r '.data.id')
+
+  curl -X POST http://localhost:8080/api/v1/tasks/$TASK_ID/run
+  echo "Started test for $middleware: $TASK_ID"
+done
+```
+
+#### Use Case 3: Comparing Configurations
+
+Test different configurations to find the optimal setup:
+
+1. Create tasks with different configurations
+2. Run all tasks
+3. Compare scores to determine best configuration
+
+### Troubleshooting
+
+**Problem: Services not starting**
+
+```bash
+# Check service status
+docker-compose ps
+
+# Check logs
+docker-compose logs mct-server
+docker-compose logs mct-web
+
+# Restart specific service
+docker-compose restart mct-server
+```
+
+**Problem: Cannot connect to middleware**
+
+Make sure to use service names (not localhost) when creating tasks:
+- ✅ Correct: `redis`, `kafka`, `mongodb`
+- ❌ Incorrect: `localhost`, `127.0.0.1`
+
+**Problem: Task stuck in "running" status**
+
+```bash
+# Check mct-server logs for errors
+docker-compose logs -f mct-server
+
+# Check if middleware service is healthy
+docker-compose ps | grep redis
+```
+
+**Problem: Web UI not loading**
+
+```bash
+# Check if mct-web is running
+docker-compose ps mct-web
+
+# Restart web service
+docker-compose restart mct-web
+
+# Clear browser cache and reload
+```
+
+### Advanced Configuration
+
+#### Custom Network Settings
+
+Edit `docker-compose.yml` to customize ports:
+
+```yaml
+services:
+  mct-web:
+    ports:
+      - "8080:80"  # Change web UI port to 8080
+  mct-server:
+    ports:
+      - "9090:8080"  # Change API port to 9090
+```
+
+#### Persistent Storage
+
+Test results are stored in memory by default. For persistence:
+
+```yaml
+services:
+  mct-server:
+    volumes:
+      - ./data:/data
+    environment:
+      - STORAGE_TYPE=file
+      - STORAGE_PATH=/data
+```
+
+#### Resource Limits
+
+Adjust resource limits for middleware services:
+
+```yaml
+services:
+  redis:
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+```
 
 ### Documentation
 
