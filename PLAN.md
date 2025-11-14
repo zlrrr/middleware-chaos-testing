@@ -2763,3 +2763,959 @@ middleware-chaos-testing/
 6. ✅ 每个检查点都有明确的验收标准和提交要求
 7. ✅ 新增5种中间件扩展计划（Phase 6-10）
 8. ✅ 提供中间件对比矩阵和开发时间线
+
+---
+
+## 十八、Phase 11 — Web服务框架（MCT Service Platform - 5-7天）
+
+**阶段目标**：在保持mct二进制工具独立性的基础上，新增一个包含前后端的Web服务框架，提供可视化的测试管理和结果展示能力。
+
+### 设计原则
+
+1. **工具独立性**：mct二进制工具保持独立运行能力，不依赖Web服务
+2. **服务包装**：Web服务通过调用mct二进制工具实现测试功能
+3. **容器化部署**：整个服务可在容器中运行
+4. **前后端分离**：采用现代化的前后端分离架构
+
+### 架构设计
+
+```
+┌──────────────────────────────────────────────────────┐
+│                   MCT Service Platform                │
+│                                                        │
+│  ┌─────────────┐      ┌──────────────┐               │
+│  │   Frontend  │◄─────┤   Backend    │               │
+│  │  (React+TS) │ REST │   (Gin)      │               │
+│  │             │─────►│              │               │
+│  └─────────────┘      └──────┬───────┘               │
+│                              │                        │
+│                              │ exec                   │
+│                              ▼                        │
+│                      ┌───────────────┐                │
+│                      │  mct binary   │                │
+│                      │  (独立工具)    │                │
+│                      └───────────────┘                │
+│                              │                        │
+│                              │                        │
+│                              ▼                        │
+│                      ┌───────────────┐                │
+│                      │  Middleware   │                │
+│                      │   Services    │                │
+│                      └───────────────┘                │
+└──────────────────────────────────────────────────────┘
+```
+
+### Phase 11.1 — 后端服务实现（2-3天）
+
+**技术栈**：
+- **框架**: Gin (Go Web Framework)
+- **数据库**: SQLite (开发) / PostgreSQL (生产)
+- **任务队列**: 内存队列 → Redis Queue (可选)
+- **日志**: Zap
+- **配置**: Viper
+
+**核心功能**：
+
+#### 1. 测试任务管理API
+```go
+// internal/service/task_service.go
+
+type TaskRequest struct {
+    Middleware  string            `json:"middleware" binding:"required"`
+    Config      map[string]string `json:"config" binding:"required"`
+    Duration    string            `json:"duration" binding:"required"`
+    Operations  int               `json:"operations"`
+    Concurrency int               `json:"concurrency"`
+}
+
+type Task struct {
+    ID          string    `json:"id"`
+    Middleware  string    `json:"middleware"`
+    Status      string    `json:"status"` // pending, running, completed, failed
+    StartTime   time.Time `json:"start_time"`
+    EndTime     time.Time `json:"end_time"`
+    Config      string    `json:"config"`
+    ResultPath  string    `json:"result_path"`
+    ErrorMsg    string    `json:"error_msg,omitempty"`
+}
+
+// POST /api/v1/tasks - 创建测试任务
+func (s *TaskService) CreateTask(req *TaskRequest) (*Task, error)
+
+// GET /api/v1/tasks/:id - 获取任务详情
+func (s *TaskService) GetTask(taskID string) (*Task, error)
+
+// GET /api/v1/tasks - 列表所有任务
+func (s *TaskService) ListTasks(page, pageSize int) ([]*Task, int64, error)
+
+// DELETE /api/v1/tasks/:id - 删除任务
+func (s *TaskService) DeleteTask(taskID string) error
+```
+
+#### 2. 测试执行引擎
+```go
+// internal/executor/mct_executor.go
+
+type MCTExecutor struct {
+    binaryPath string
+    workDir    string
+    logger     *zap.Logger
+}
+
+// 执行mct二进制工具
+func (e *MCTExecutor) Execute(ctx context.Context, task *Task) (*TestResult, error) {
+    // 1. 构建命令行参数
+    args := buildArgs(task)
+    
+    // 2. 创建工作目录
+    workDir := filepath.Join(e.workDir, task.ID)
+    
+    // 3. 执行mct命令
+    cmd := exec.CommandContext(ctx, e.binaryPath, args...)
+    cmd.Dir = workDir
+    
+    // 4. 捕获输出
+    output, err := cmd.CombinedOutput()
+    
+    // 5. 解析结果
+    result := parseTestOutput(output)
+    
+    return result, nil
+}
+
+// 解析mct输出
+func parseTestOutput(output []byte) (*TestResult, error) {
+    // 解析JSON格式的测试报告
+    var result TestResult
+    err := json.Unmarshal(output, &result)
+    return &result, err
+}
+```
+
+#### 3. 结果存储与查询
+```go
+// internal/storage/result_store.go
+
+type ResultStore interface {
+    SaveResult(taskID string, result *TestResult) error
+    GetResult(taskID string) (*TestResult, error)
+    ListResults(filter ResultFilter) ([]*TestResult, error)
+}
+
+type TestResult struct {
+    TaskID      string                 `json:"task_id"`
+    Middleware  string                 `json:"middleware"`
+    Score       float64                `json:"score"`
+    Grade       string                 `json:"grade"`
+    Status      string                 `json:"status"`
+    Metrics     StabilityMetrics       `json:"metrics"`
+    Issues      []Issue                `json:"issues"`
+    Recommendations []Recommendation   `json:"recommendations"`
+    StartTime   time.Time              `json:"start_time"`
+    EndTime     time.Time              `json:"end_time"`
+    Duration    time.Duration          `json:"duration"`
+}
+```
+
+#### 4. WebSocket实时推送
+```go
+// internal/service/websocket_service.go
+
+type WSMessage struct {
+    Type    string      `json:"type"` // task_update, log, metric
+    TaskID  string      `json:"task_id"`
+    Payload interface{} `json:"payload"`
+}
+
+// 实时推送任务状态
+func (s *WSService) BroadcastTaskUpdate(taskID string, status string)
+
+// 实时推送测试日志
+func (s *WSService) StreamLogs(taskID string, logs []string)
+
+// 实时推送性能指标
+func (s *WSService) StreamMetrics(taskID string, metrics map[string]float64)
+```
+
+**API路由设计**：
+```go
+// cmd/mct-server/main.go
+
+func setupRouter() *gin.Engine {
+    r := gin.Default()
+    r.Use(cors.Default())
+    
+    api := r.Group("/api/v1")
+    {
+        // 任务管理
+        api.POST("/tasks", createTask)
+        api.GET("/tasks", listTasks)
+        api.GET("/tasks/:id", getTask)
+        api.DELETE("/tasks/:id", deleteTask)
+        
+        // 结果查询
+        api.GET("/tasks/:id/result", getTaskResult)
+        api.GET("/tasks/:id/logs", getTaskLogs)
+        
+        // 中间件元数据
+        api.GET("/middlewares", listSupportedMiddlewares)
+        api.GET("/middlewares/:name/config", getMiddlewareConfig)
+        
+        // WebSocket
+        api.GET("/ws/:task_id", wsHandler)
+    }
+    
+    return r
+}
+```
+
+**检查点 #11.1 - 后端服务实现**：
+```bash
+# 目录结构
+cmd/
+├── mct/              # 现有CLI工具（保持不变）
+└── mct-server/       # 新增Web服务
+    └── main.go
+
+internal/
+├── service/
+│   ├── task_service.go
+│   ├── result_service.go
+│   └── websocket_service.go
+├── executor/
+│   └── mct_executor.go
+├── storage/
+│   ├── task_store.go
+│   └── result_store.go
+└── api/
+    ├── handlers/
+    └── middleware/
+
+# 测试
+go test ./internal/service/... -v
+go test ./internal/executor/... -v
+
+git add cmd/mct-server internal/service internal/executor internal/storage
+git commit -m "Phase 11.1: 完成Web服务后端实现"
+git tag phase-11.1
+```
+
+---
+
+### Phase 11.2 — 前端界面实现（2-3天）
+
+**技术栈**：
+- **框架**: React 18 + TypeScript
+- **构建工具**: Vite
+- **UI组件**: Ant Design / shadcn/ui
+- **状态管理**: Zustand
+- **数据可视化**: Recharts / ECharts
+- **HTTP客户端**: Axios
+- **WebSocket**: Socket.IO Client
+
+**页面设计**：
+
+#### 1. 测试任务页面 (`/tasks`)
+```tsx
+// web/src/pages/Tasks.tsx
+
+interface TaskListProps {
+  tasks: Task[];
+  onCreateTask: () => void;
+  onViewResult: (taskId: string) => void;
+}
+
+// 功能:
+// - 任务列表展示（表格）
+// - 筛选和搜索
+// - 创建新任务（模态框）
+// - 任务状态实时更新
+// - 删除任务
+```
+
+#### 2. 创建任务模态框
+```tsx
+// web/src/components/CreateTaskModal.tsx
+
+interface CreateTaskForm {
+  middleware: string;          // 下拉选择: Redis, Kafka, MongoDB...
+  duration: string;             // 输入框: 30s, 1m, 5m...
+  operations: number;           // 数字输入: 5000
+  concurrency: number;          // 数字输入: 10
+  config: Record<string, string>; // 动态配置表单
+}
+
+// 根据选择的中间件类型，动态渲染配置项
+// Redis: host, port, password, db
+// Kafka: brokers, topic, producer-group...
+// MongoDB: uri, database, collection...
+```
+
+#### 3. 测试结果页面 (`/tasks/:id/result`)
+```tsx
+// web/src/pages/TaskResult.tsx
+
+// 功能模块:
+// 1. 总体评分卡片
+//    - 总分 (87.5/100)
+//    - 等级 (GOOD)
+//    - 状态徽章 (PASS/WARNING/FAIL)
+
+// 2. 各维度得分柱状图
+//    - 可用性: 28.5/30
+//    - 性能: 21.0/25
+//    - 可靠性: 23.5/25
+//    - 恢复力: 14.5/20
+
+// 3. 核心指标面板
+//    - 可用性: 99.92%
+//    - P50/P95/P99延迟
+//    - 错误率
+//    - MTTR
+
+// 4. 性能趋势图（时间序列）
+//    - 延迟趋势线图
+//    - 吞吐量图
+//    - 错误率曲线
+
+// 5. 问题列表
+//    - Severity: CRITICAL/HIGH/MEDIUM/LOW
+//    - 问题描述
+//    - 当前值 vs 期望值
+
+// 6. 改进建议卡片
+//    - 优先级: HIGH/MEDIUM/LOW
+//    - 建议标题
+//    - 具体行动步骤
+```
+
+#### 4. 实时监控页面 (`/tasks/:id/monitor`)
+```tsx
+// web/src/pages/TaskMonitor.tsx
+
+// 实时显示测试进度:
+// - 进度条（已执行操作数 / 总操作数）
+// - 实时日志流（WebSocket）
+// - 实时性能指标（每秒更新）
+//   - 当前QPS
+//   - 当前延迟
+//   - 错误计数
+```
+
+#### 5. 仪表板页面 (`/dashboard`)
+```tsx
+// web/src/pages/Dashboard.tsx
+
+// 统计概览:
+// - 总测试次数
+// - 各中间件测试分布（饼图）
+// - 平均得分趋势（折线图）
+// - 最近测试列表
+```
+
+**组件结构**：
+```
+web/
+├── src/
+│   ├── pages/
+│   │   ├── Dashboard.tsx
+│   │   ├── Tasks.tsx
+│   │   ├── TaskResult.tsx
+│   │   └── TaskMonitor.tsx
+│   ├── components/
+│   │   ├── CreateTaskModal.tsx
+│   │   ├── ScoreCard.tsx
+│   │   ├── MetricsChart.tsx
+│   │   ├── IssueList.tsx
+│   │   ├── RecommendationCard.tsx
+│   │   └── RealTimeLog.tsx
+│   ├── services/
+│   │   ├── api.ts         # Axios API客户端
+│   │   └── websocket.ts   # WebSocket客户端
+│   ├── stores/
+│   │   ├── taskStore.ts
+│   │   └── resultStore.ts
+│   ├── types/
+│   │   └── index.ts
+│   ├── App.tsx
+│   └── main.tsx
+├── package.json
+├── vite.config.ts
+└── tsconfig.json
+```
+
+**检查点 #11.2 - 前端界面实现**：
+```bash
+cd web
+npm install
+npm run build
+
+# 测试前端构建产物
+ls -lh web/dist/
+
+git add web/
+git commit -m "Phase 11.2: 完成Web服务前端实现"
+git tag phase-11.2
+```
+
+---
+
+### Phase 11.3 — 容器化部署（1天）
+
+**Docker Compose 编排**：
+
+```yaml
+# docker-compose.yml (更新版)
+
+version: '3.8'
+
+services:
+  # MCT Web服务（新增）
+  mct-server:
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+    ports:
+      - "8080:8080"
+    environment:
+      - MCT_BINARY_PATH=/usr/local/bin/mct
+      - DB_PATH=/data/mct.db
+      - LOG_LEVEL=info
+    volumes:
+      - ./data:/data
+      - ./logs:/var/log/mct
+    depends_on:
+      - redis
+      - kafka
+      - mongodb
+      - rocketmq-namesrv
+      - rabbitmq
+      - emqx
+      - nacos
+    networks:
+      - mct-network
+
+  # 前端服务（Nginx）
+  mct-web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    ports:
+      - "3000:80"
+    depends_on:
+      - mct-server
+    networks:
+      - mct-network
+
+  # 现有中间件服务（保持不变）
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    networks:
+      - mct-network
+
+  kafka:
+    image: apache/kafka:latest
+    ports:
+      - "9092:9092"
+    environment:
+      - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
+    networks:
+      - mct-network
+
+  mongodb:
+    image: mongo:4.4.13
+    ports:
+      - "27017:27017"
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=admin
+      - MONGO_INITDB_ROOT_PASSWORD=password
+    networks:
+      - mct-network
+
+  rocketmq-namesrv:
+    image: apache/rocketmq:5.1.3
+    command: sh mqnamesrv
+    ports:
+      - "9876:9876"
+    networks:
+      - mct-network
+
+  rabbitmq:
+    image: rabbitmq:3.12.7-management
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      - RABBITMQ_DEFAULT_USER=admin
+      - RABBITMQ_DEFAULT_PASS=password
+    networks:
+      - mct-network
+
+  emqx:
+    image: emqx/emqx:5.8
+    ports:
+      - "1883:1883"
+      - "18083:18083"
+    networks:
+      - mct-network
+
+  nacos:
+    image: nacos/nacos-server:v2.4.3
+    ports:
+      - "8848:8848"
+      - "9848:9848"
+    environment:
+      - MODE=standalone
+    networks:
+      - mct-network
+
+networks:
+  mct-network:
+    driver: bridge
+
+volumes:
+  mct-data:
+```
+
+**后端Dockerfile**：
+```dockerfile
+# Dockerfile.server
+
+FROM golang:1.23-alpine AS builder
+
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+
+# 构建mct CLI工具
+RUN go build -ldflags="-s -w" -o /usr/local/bin/mct ./cmd/mct
+
+# 构建mct-server Web服务
+RUN go build -ldflags="-s -w" -o /usr/local/bin/mct-server ./cmd/mct-server
+
+FROM alpine:latest
+
+RUN apk --no-cache add ca-certificates
+
+COPY --from=builder /usr/local/bin/mct /usr/local/bin/mct
+COPY --from=builder /usr/local/bin/mct-server /usr/local/bin/mct-server
+
+EXPOSE 8080
+
+CMD ["/usr/local/bin/mct-server"]
+```
+
+**前端Dockerfile**：
+```dockerfile
+# web/Dockerfile
+
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+COPY package*.json ./
+RUN npm install
+
+COPY . .
+RUN npm run build
+
+FROM nginx:alpine
+
+COPY --from=builder /app/dist /usr/share/nginx/html
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+EXPOSE 80
+
+CMD ["nginx", "-g", "daemon off;"]
+```
+
+**Nginx配置**：
+```nginx
+# web/nginx.conf
+
+server {
+    listen 80;
+    server_name localhost;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # 代理API请求到后端
+    location /api/ {
+        proxy_pass http://mct-server:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_cache_bypass $http_upgrade;
+    }
+
+    # WebSocket代理
+    location /api/v1/ws/ {
+        proxy_pass http://mct-server:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+}
+```
+
+**启动脚本**：
+```bash
+#!/bin/bash
+# scripts/start-platform.sh
+
+echo "Starting MCT Service Platform..."
+
+# 启动所有服务
+docker-compose up -d
+
+echo "Waiting for services to be ready..."
+sleep 10
+
+echo "MCT Service Platform is ready!"
+echo "- Web UI: http://localhost:3000"
+echo "- API: http://localhost:8080"
+echo ""
+echo "Middleware Services:"
+echo "- Redis: localhost:6379"
+echo "- Kafka: localhost:9092"
+echo "- MongoDB: localhost:27017"
+echo "- RocketMQ: localhost:9876"
+echo "- RabbitMQ: localhost:5672 (Management: http://localhost:15672)"
+echo "- EMQX: localhost:1883 (Dashboard: http://localhost:18083)"
+echo "- Nacos: http://localhost:8848/nacos"
+```
+
+**检查点 #11.3 - 容器化部署**：
+```bash
+# 构建镜像
+docker-compose build
+
+# 启动服务
+docker-compose up -d
+
+# 验证服务
+curl http://localhost:8080/api/v1/middlewares
+curl http://localhost:3000
+
+git add Dockerfile.server docker-compose.yml web/Dockerfile web/nginx.conf scripts/
+git commit -m "Phase 11.3: 完成容器化部署配置"
+git tag phase-11.3
+```
+
+---
+
+### Phase 11.4 — 集成测试与文档（1天）
+
+**端到端测试场景**：
+
+```go
+// tests/e2e/platform_test.go
+
+func TestCreateAndRunTask(t *testing.T) {
+    // 1. 创建测试任务
+    task := createTask(&TaskRequest{
+        Middleware: "redis",
+        Config: map[string]string{
+            "host": "redis",
+            "port": "6379",
+        },
+        Duration: "30s",
+        Operations: 5000,
+    })
+    
+    // 2. 等待任务完成
+    waitForTaskCompletion(task.ID, 60*time.Second)
+    
+    // 3. 获取测试结果
+    result := getTaskResult(task.ID)
+    
+    // 4. 验证结果
+    assert.NotNil(t, result)
+    assert.Greater(t, result.Score, 0.0)
+    assert.NotEmpty(t, result.Grade)
+}
+
+func TestWebSocketRealTimeUpdates(t *testing.T) {
+    // 测试WebSocket实时推送
+}
+
+func TestAllMiddlewares(t *testing.T) {
+    middlewares := []string{
+        "redis", "kafka", "mongodb", 
+        "rocketmq", "rabbitmq", "emqx", "nacos",
+    }
+    
+    for _, mw := range middlewares {
+        t.Run(mw, func(t *testing.T) {
+            // 测试每个中间件
+        })
+    }
+}
+```
+
+**使用文档**：
+
+```markdown
+# MCT Service Platform 使用指南
+
+## 快速开始
+
+### 1. 启动平台
+```bash
+docker-compose up -d
+```
+
+### 2. 访问Web界面
+打开浏览器访问: http://localhost:3000
+
+### 3. 创建测试任务
+1. 点击"创建测试"按钮
+2. 选择中间件类型（Redis/Kafka/MongoDB等）
+3. 配置连接参数
+4. 设置测试持续时间和并发度
+5. 点击"开始测试"
+
+### 4. 查看测试结果
+- 实时监控页面: 查看正在运行的测试
+- 结果详情页面: 查看完整的测试报告
+- 仪表板页面: 查看历史统计数据
+
+## API文档
+
+### 创建测试任务
+```bash
+curl -X POST http://localhost:8080/api/v1/tasks \
+  -H "Content-Type: application/json" \
+  -d '{
+    "middleware": "redis",
+    "config": {
+      "host": "localhost",
+      "port": "6379"
+    },
+    "duration": "30s",
+    "operations": 5000,
+    "concurrency": 10
+  }'
+```
+
+### 查询任务状态
+```bash
+curl http://localhost:8080/api/v1/tasks/{task_id}
+```
+
+### 获取测试结果
+```bash
+curl http://localhost:8080/api/v1/tasks/{task_id}/result
+```
+
+## WebSocket订阅
+
+```javascript
+const ws = new WebSocket('ws://localhost:8080/api/v1/ws/{task_id}');
+
+ws.onmessage = (event) => {
+  const message = JSON.parse(event.data);
+  
+  switch(message.type) {
+    case 'task_update':
+      console.log('Task status:', message.payload.status);
+      break;
+    case 'log':
+      console.log('Log:', message.payload);
+      break;
+    case 'metric':
+      console.log('Metrics:', message.payload);
+      break;
+  }
+};
+```
+```
+
+**检查点 #11.4 - 集成测试与文档**：
+```bash
+# 运行E2E测试
+go test ./tests/e2e/... -v
+
+# 生成API文档
+swag init -g cmd/mct-server/main.go
+
+git add tests/e2e docs/platform-guide.md
+git commit -m "Phase 11.4: 完成集成测试与文档"
+git tag phase-11.4
+```
+
+---
+
+### Phase 11 验收标准
+
+#### 功能验收
+- [ ] Web服务能够正常启动
+- [ ] 前端界面正常访问
+- [ ] 能够通过Web界面创建测试任务
+- [ ] mct二进制工具能够被正确调用
+- [ ] 测试结果能够正确解析和展示
+- [ ] WebSocket实时推送正常工作
+- [ ] 支持所有7种中间件的测试
+- [ ] 数据库能够正确存储任务和结果
+- [ ] Docker Compose一键启动所有服务
+
+#### 性能验收
+- [ ] 单个测试任务响应时间 < 2s（创建）
+- [ ] 结果查询响应时间 < 500ms
+- [ ] 支持至少10个并发测试任务
+- [ ] WebSocket消息延迟 < 100ms
+
+#### 安全验收
+- [ ] API需要认证（可选实现）
+- [ ] SQL注入防护
+- [ ] XSS防护
+- [ ] CORS配置正确
+
+#### 文档验收
+- [ ] API文档完整
+- [ ] 部署文档完整
+- [ ] 用户使用指南完整
+- [ ] 架构设计文档完整
+
+---
+
+## 十九、项目结构最终版本
+
+```
+middleware-chaos-testing/
+├── cmd/
+│   ├── mct/                    # CLI工具（独立）
+│   │   └── main.go
+│   └── mct-server/             # Web服务
+│       └── main.go
+│
+├── internal/
+│   ├── core/                   # 核心抽象（共享）
+│   ├── middleware/             # 中间件客户端（共享）
+│   ├── metrics/                # 指标收集（共享）
+│   ├── detector/               # 稳定性检测（共享）
+│   ├── evaluator/              # 评估器（共享）
+│   ├── reporter/               # 报告生成（共享）
+│   ├── orchestrator/           # 测试编排（共享）
+│   ├── config/                 # 配置管理（共享）
+│   │
+│   ├── service/                # Web服务业务逻辑（新增）
+│   │   ├── task_service.go
+│   │   ├── result_service.go
+│   │   └── websocket_service.go
+│   ├── executor/               # mct执行器（新增）
+│   │   └── mct_executor.go
+│   ├── storage/                # 数据存储（新增）
+│   │   ├── task_store.go
+│   │   └── result_store.go
+│   └── api/                    # HTTP处理器（新增）
+│       ├── handlers/
+│       └── middleware/
+│
+├── web/                        # 前端项目（新增）
+│   ├── src/
+│   │   ├── pages/
+│   │   ├── components/
+│   │   ├── services/
+│   │   ├── stores/
+│   │   └── types/
+│   ├── package.json
+│   ├── vite.config.ts
+│   ├── Dockerfile
+│   └── nginx.conf
+│
+├── tests/
+│   ├── unit/
+│   ├── integration/
+│   └── e2e/                    # E2E测试（新增）
+│       └── platform_test.go
+│
+├── docs/
+│   ├── phase-0/
+│   ├── api/                    # API文档（新增）
+│   ├── platform-guide.md       # 平台使用指南（新增）
+│   └── deployment.md           # 部署文档（新增）
+│
+├── configs/
+├── scripts/
+│   └── start-platform.sh       # 启动脚本（新增）
+├── Dockerfile                  # CLI工具镜像
+├── Dockerfile.server           # Web服务镜像（新增）
+├── docker-compose.yml          # 更新版本
+├── Makefile
+├── go.mod
+├── go.sum
+├── README.md
+└── README_CN.md
+```
+
+---
+
+## 二十、开发时间线更新
+
+| Phase | 任务 | 预计工期 | 累计时间 |
+|-------|------|---------|---------|
+| 0-10 | 全部中间件客户端 | ✅ 已完成 | ~15天 |
+| 11.1 | Web服务后端 | 2-3天 | +3天 |
+| 11.2 | Web服务前端 | 2-3天 | +3天 |
+| 11.3 | 容器化部署 | 1天 | +1天 |
+| 11.4 | 集成测试与文档 | 1天 | +1天 |
+| **总计** | **完整平台** | **约23天** | - |
+
+**并行开发**（2人团队）:
+- **后端开发** + **前端开发** 并行
+- **工期缩短至**: 约18-20天
+
+---
+
+## 二十一、最终验收标准
+
+### CLI工具（独立运行）
+- [x] 支持7种中间件
+- [x] 命令行参数完整
+- [x] 智能评分系统
+- [x] 专业测试报告
+- [x] 可独立运行，不依赖Web服务
+
+### Web服务平台
+- [ ] Web界面美观易用
+- [ ] 支持创建和管理测试任务
+- [ ] 实时监控测试进度
+- [ ] 可视化展示测试结果
+- [ ] WebSocket实时推送
+- [ ] 历史数据查询
+- [ ] 统计仪表板
+
+### 容器化部署
+- [ ] Docker Compose一键启动
+- [ ] 包含所有7种中间件服务
+- [ ] 前后端容器化
+- [ ] 数据持久化
+- [ ] 日志管理
+
+### 文档完整性
+- [ ] README（中英文）
+- [ ] API文档
+- [ ] 平台使用指南
+- [ ] 部署文档
+- [ ] 架构设计文档
+
+---
+
+**✅ Phase 11计划说明：**
+1. ✅ 保持mct二进制工具的独立性
+2. ✅ Web服务通过调用mct二进制实现测试
+3. ✅ 前后端分离架构
+4. ✅ 支持容器化部署
+5. ✅ 实时监控和可视化展示
+6. ✅ 完整的API和文档
+7. ✅ 渐进式开发，每个子阶段可独立验收
