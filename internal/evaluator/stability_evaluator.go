@@ -210,6 +210,50 @@ func MongoDBThresholds() *core.Thresholds {
 	}
 }
 
+// RocketMQThresholds 返回RocketMQ专用阈值（符合阿里云生产环境最佳实践）
+// RocketMQ作为高性能消息队列，支持99.999%可用性（5个9）和极低延迟
+func RocketMQThresholds() *core.Thresholds {
+	return &core.Thresholds{
+		// 可用性标准（RocketMQ要求更高）
+		AvailabilityExcellent: 0.99999, // 99.999% (5个9，阿里云生产标准)
+		AvailabilityGood:      0.9999,  // 99.99% (4个9)
+		AvailabilityFair:      0.999,   // 99.9%
+		AvailabilityPass:      0.99,    // 99%
+
+		// RocketMQ P95延迟标准（生产环境实测数据）
+		// 优秀：5ms以内（阿里云生产环境标准，SSD+高性能网络）
+		// 良好：20ms以内（标准配置，可能包含网络延迟）
+		// 尚可：50ms以内（包含批处理延迟或网络抖动）
+		// 及格：100ms以内（需要优化）
+		P95LatencyExcellent: 5 * time.Millisecond,
+		P95LatencyGood:      20 * time.Millisecond,
+		P95LatencyFair:      50 * time.Millisecond,
+		P95LatencyPass:      100 * time.Millisecond,
+
+		// RocketMQ P99延迟标准
+		// 优秀：10ms以内（极少数请求受影响）
+		// 良好：50ms以内（可能包含重试或NameServer查询）
+		// 尚可：100ms以内（可能包含队列切换）
+		// 及格：200ms以内（需要调优）
+		P99LatencyExcellent: 10 * time.Millisecond,
+		P99LatencyGood:      50 * time.Millisecond,
+		P99LatencyFair:      100 * time.Millisecond,
+		P99LatencyPass:      200 * time.Millisecond,
+
+		// 错误率标准（RocketMQ自动重试机制）
+		ErrorRateExcellent: 0.00001, // 0.001% (更严格)
+		ErrorRateGood:      0.0001,  // 0.01%
+		ErrorRateFair:      0.001,   // 0.1%
+		ErrorRatePass:      0.01,    // 1%
+
+		// MTTR标准（RocketMQ快速故障转移）
+		MTTRExcellent: 3 * time.Second,  // NameServer自动切换
+		MTTRGood:      10 * time.Second, // 包含重试和队列切换
+		MTTRFair:      30 * time.Second, // 可能需要Broker切换
+		MTTRPass:      60 * time.Second, // 需要人工介入
+	}
+}
+
 // Evaluate 评估稳定性指标
 func (se *StabilityEvaluator) Evaluate(metrics *core.StabilityMetrics) *core.EvaluationResult {
 	result := &core.EvaluationResult{
