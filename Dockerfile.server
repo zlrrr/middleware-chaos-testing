@@ -1,0 +1,63 @@
+# Build stage
+FROM golang:1.23-alpine AS builder
+
+# Install build dependencies
+RUN apk add --no-cache git make
+
+WORKDIR /app
+
+# Copy go mod files
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Build mct CLI tool
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /usr/local/bin/mct ./cmd/mct
+
+# Build mct-server Web service
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /usr/local/bin/mct-server ./cmd/mct-server
+
+# Production stage
+FROM alpine:latest
+
+# Install runtime dependencies
+RUN apk --no-cache add ca-certificates tzdata
+
+# Create non-root user
+RUN addgroup -g 1000 mct && \
+    adduser -D -u 1000 -G mct mct
+
+# Create directories
+RUN mkdir -p /data /var/log/mct /tmp/mct-tasks && \
+    chown -R mct:mct /data /var/log/mct /tmp/mct-tasks
+
+# Copy binaries from builder
+COPY --from=builder /usr/local/bin/mct /usr/local/bin/mct
+COPY --from=builder /usr/local/bin/mct-server /usr/local/bin/mct-server
+
+# Set permissions
+RUN chmod +x /usr/local/bin/mct /usr/local/bin/mct-server
+
+# Switch to non-root user
+USER mct
+
+# Set working directory
+WORKDIR /app
+
+# Expose port
+EXPOSE 8080
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+  CMD wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1
+
+# Environment variables
+ENV MCT_BINARY_PATH=/usr/local/bin/mct \
+    MCT_WORK_DIR=/tmp/mct-tasks \
+    MCT_SERVER_PORT=8080 \
+    GIN_MODE=release
+
+# Start server
+CMD ["/usr/local/bin/mct-server"]
