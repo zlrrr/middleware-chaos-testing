@@ -37,9 +37,10 @@ jobs:
 
       - name: Run tests
         run: |
-          # Run unit tests only, excluding evaluator, integration, and e2e tests
+          # Run unit tests only, excluding evaluator, middleware clients, integration, and e2e tests
+          # Middleware client tests require actual services running (integration tests)
           go test -v -race -coverprofile=coverage.txt -covermode=atomic \
-            $(go list ./... | grep -v 'tests/unit/evaluator' | grep -v 'tests/integration' | grep -v 'tests/e2e')
+            $(go list ./... | grep -v 'tests/unit/evaluator' | grep -v 'tests/unit/middleware' | grep -v 'tests/integration' | grep -v 'tests/e2e')
 
       - name: Upload coverage
         uses: codecov/codecov-action@v3

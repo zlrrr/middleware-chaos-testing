@@ -533,12 +533,14 @@ DONE:
 func executeEMQXTest(ctx context.Context, host string, port int, duration time.Duration, operations int, coll *collector.MetricsCollector) (*core.StabilityMetrics, error) {
 	// 创建EMQX客户端
 	cfg := &middleware.EMQXConfig{
-		Broker:   fmt.Sprintf("tcp://%s:%d", host, port),
-		ClientID: "chaos-test-client",
-		Topic:    "chaos/test/topic",
-		QoS:      1,
-		Timeout:  5 * time.Second,
+		Broker:          fmt.Sprintf("tcp://%s:%d", host, port),
+		ClientID:        "chaos-test-client",
+		ConnectTimeout:  5 * time.Second,
+		ProtocolVersion: 4, // MQTT 3.1.1
 	}
+
+	testTopic := "chaos/test/topic"
+	testQoS := byte(1)
 
 	client := middleware.NewEMQXClient(cfg)
 
@@ -570,8 +572,11 @@ func executeEMQXTest(ctx context.Context, host string, port int, duration time.D
 
 			// Publish操作
 			publishOp := &middleware.EMQXPublishOperation{
-				OpTopic: cfg.Topic,
-				OpValue: []byte(fmt.Sprintf("test-message-%d", opsPerformed)),
+				Message: &middleware.EMQXMessage{
+					Topic:   testTopic,
+					Payload: []byte(fmt.Sprintf("test-message-%d", opsPerformed)),
+					QoS:     testQoS,
+				},
 			}
 			publishResult, _ := client.Execute(testCtx, publishOp)
 			if publishResult != nil {
@@ -589,11 +594,12 @@ DONE:
 func executeNacosTest(ctx context.Context, host string, port int, duration time.Duration, operations int, coll *collector.MetricsCollector) (*core.StabilityMetrics, error) {
 	// 创建Nacos客户端
 	cfg := &middleware.NacosConfig{
-		ServerAddr:  fmt.Sprintf("%s:%d", host, port),
-		NamespaceID: "public",
-		Group:       "DEFAULT_GROUP",
-		DataID:      "chaos-test-config",
-		Timeout:     5 * time.Second,
+		ServerAddrs: []string{fmt.Sprintf("%s:%d", host, port)},
+		NamespaceId: "public",
+		GroupName:   "DEFAULT_GROUP",
+		ConfigGroup: "DEFAULT_GROUP",
+		DataId:      "chaos-test-config",
+		TimeoutMs:   5000, // 5秒
 	}
 
 	client := middleware.NewNacosClient(cfg)
@@ -626,7 +632,9 @@ func executeNacosTest(ctx context.Context, host string, port int, duration time.
 
 			// PublishConfig操作
 			publishOp := &middleware.NacosPublishConfigOperation{
-				OpValue: fmt.Sprintf("config-value-%d", opsPerformed),
+				DataId:  cfg.DataId,
+				Group:   cfg.ConfigGroup,
+				Content: fmt.Sprintf("config-value-%d", opsPerformed),
 			}
 			publishResult, _ := client.Execute(testCtx, publishOp)
 			if publishResult != nil {
@@ -634,7 +642,10 @@ func executeNacosTest(ctx context.Context, host string, port int, duration time.
 			}
 
 			// GetConfig操作
-			getOp := &middleware.NacosGetConfigOperation{}
+			getOp := &middleware.NacosGetConfigOperation{
+				DataId: cfg.DataId,
+				Group:  cfg.ConfigGroup,
+			}
 			getResult, _ := client.Execute(testCtx, getOp)
 			if getResult != nil {
 				coll.RecordOperation(getResult)
