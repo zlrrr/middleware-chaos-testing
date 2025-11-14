@@ -1,0 +1,42 @@
+# golangci-lint configuration
+run:
+  timeout: 5m
+  tests: true
+  skip-dirs:
+    - vendor
+    - web
+
+linters:
+  enable:
+    - gofmt
+    - govet
+    - staticcheck
+    - ineffassign
+    - unused
+  disable:
+    - errcheck  # Too many false positives
+    - gosimple
+    - structcheck
+    - deadcode
+    - varcheck
+
+linters-settings:
+  govet:
+    check-shadowing: false
+  gofmt:
+    simplify: true
+
+issues:
+  exclude-rules:
+    # Exclude test files from some checks
+    - path: _test\.go
+      linters:
+        - errcheck
+        - unused
+    # Exclude generated files
+    - path: ".*\\.pb\\.go"
+      linters:
+        - all
+
+  max-issues-per-linter: 0
+  max-same-issues: 0
