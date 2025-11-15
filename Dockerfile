@@ -16,8 +16,9 @@ RUN go mod download
 # 复制源代码
 COPY . .
 
-# 构建二进制文件
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o /mct cmd/mct/main.go
+# 整理依赖并构建二进制文件
+RUN go mod tidy && \
+    CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o /mct cmd/mct/main.go
 
 # 运行阶段
 FROM alpine:latest

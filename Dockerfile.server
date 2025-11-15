@@ -13,8 +13,9 @@ RUN go mod download
 # Copy source code
 COPY . .
 
-# Build mct CLI tool
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /usr/local/bin/mct ./cmd/mct
+# Tidy dependencies and build mct CLI tool
+RUN go mod tidy && \
+    CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /usr/local/bin/mct ./cmd/mct
 
 # Build mct-server Web service
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /usr/local/bin/mct-server ./cmd/mct-server

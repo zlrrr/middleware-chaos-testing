@@ -57,6 +57,7 @@ jobs:
       - name: Get dependencies
         run: |
           go mod download
+          go mod tidy
           go mod verify
 
       - name: Get version
@@ -147,6 +148,7 @@ jobs:
       - name: Get dependencies
         run: |
           go mod download
+          go mod tidy
           go mod verify
 
       - name: Get version
