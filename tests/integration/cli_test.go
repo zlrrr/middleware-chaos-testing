@@ -17,13 +17,13 @@ const (
 	mctBinaryPath = "../../bin/mct"
 )
 
-// TestCLI_Version tests the version command
+// TestCLI_Version tests the version flag
 func TestCLI_Version(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping CLI integration test in short mode")
 	}
 
-	cmd := exec.Command(mctBinaryPath, "version")
+	cmd := exec.Command(mctBinaryPath, "--version")
 	output, err := cmd.CombinedOutput()
 
 	assert.NoError(t, err)
@@ -40,7 +40,7 @@ func TestCLI_Help(t *testing.T) {
 	output, err := cmd.CombinedOutput()
 
 	assert.NoError(t, err)
-	assert.Contains(t, string(output), "Middleware Chaos Testing Tool")
+	assert.Contains(t, string(output), "A tool for testing middleware stability")
 	assert.Contains(t, string(output), "test")
 }
 
